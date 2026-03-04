@@ -1,115 +1,104 @@
-# Chronos
+# Chronos: Clash of Wills
 
-The ultimate game-theory board game
+Chronos is a competitive, turn-based strategy board game where two players fight for control of a central Core while managing hidden intent through token selection and simultaneous action planning.
 
-## Prerequisites
+## What the game is
 
-Before you begin, ensure you have the following installed:
-- **Node.js** (v18 or higher)
-- **Python** (v3.8 or higher)
+In each round, players choose actions for their units and resolve movement/combat across a grid battlefield. You can win by:
 
-## Installation
+1. **Eliminating the enemy Strategos**, or
+2. **Reaching the core-control score threshold** first.
 
-1.  **Clone the repository** (or download the source code).
+The design emphasizes positioning, prediction, and calculated risk rather than pure reaction speed.
 
-2.  **Install Frontend/Backend Dependencies**:
-    Open a terminal in the project root and run:
-    ```bash
-    npm install
-    ```
+### Inspiration
 
-3.  **Install Python Dependencies**:
-    It is recommended to use a virtual environment.
-    
-    **On macOS/Linux:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
+Chronos is inspired by:
 
-    **On Windows:**
-    ```bash
-    python -m venv venv
-    venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
+- **Classical abstract strategy games** (board control and positional pressure),
+- **Game-theory decision making** (reading opponents and selecting high-value commitments),
+- **Simultaneous-resolution tactics** (plans collide, creating emergent outcomes).
 
-4.  **Environment Setup**:
-    Copy the example environment file:
-    ```bash
-    cp .env.example .env
-    ```
-    (On Windows, use `copy .env.example .env`)
+The result is a "mind game" format where tempo, board geometry, and commitment timing are as important as raw piece strength.
 
----
+## Installation (clear setup guide)
 
-## 🧠 Strategy Tips
+### Prerequisites
 
-- Use Scouts to claim core tiles quickly – their value 1 combined with the center multiplier (2) gives 2 points, helping toward the 5‑point threshold.  
-- Wardens are durable and can hold core positions.  
-- The Strategos is fragile but high‑value; protecting it is vital, but a well‑timed dash to the center can win the game instantly.  
-- Timing of token numbers matters: higher tokens win clashes, but lower tokens might still be useful for moves or claims if you expect no clash.  
-- Watch for collisions – a well‑coordinated move can eliminate an enemy unit without spending an attack token.
+- **Node.js** 18+
+- **Python** 3.8+
+- **pip**
 
----
+### 1) Clone and install JavaScript dependencies
 
-## Running the Application
+```bash
+git clone <your-repo-url>
+cd Chronos
+npm install
+```
 
-1.  **Start the Development Server**:
-    Ensure your Python virtual environment is activated (if you used one).
-    
-    ```bash
-    npm run dev
-    ```
+### 2) Create a Python virtual environment and install Python dependencies
 
-    This command will:
-    - Start the Node.js/Express server on port 3000.
-    - Automatically start the Python AI server on port 5000.
-    - Launch the Vite development server for the frontend.
+**macOS / Linux**
 
-2.  **Access the App**:
-    Open your browser and navigate to:
-    [http://localhost:5000](http://localhost:5000)
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell / CMD)**
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 3) Run the full app stack
+
+```bash
+npm run dev
+```
+
+This command starts:
+
+- **Node/Express + Vite middleware** on `http://localhost:3000`
+- **Python AI service** on `http://localhost:5000`
+- **API proxy** from `/api/ai/*` to the Python service
+
+Open the game at **http://localhost:3000**.
 
 ## Troubleshooting
 
--   **AI Server Issues**: If the AI features aren't working, check the terminal output for errors related to the Python process. Ensure all Python dependencies are installed correctly.
--   **Port Conflicts**: The app uses ports 3000 (Web) and 5000 (AI). Ensure these ports are free.
+- If `python` is not recognized, update `server.js` to use `python3` on systems where that alias is required.
+- If AI requests fail, verify your virtual environment is active and `pip install -r requirements.txt` completed.
+- If ports are in use, update `PORT` and `PYTHON_PORT` in `server.js`.
 
----
+## AI agent architecture
 
-## AI Agent Architecture
+Chronos uses a multi-agent AI pipeline to produce tactical decisions.
 
-The AI opponent in Chronos: Clash of Wills is powered by four specialized agents working together. Each agent handles a distinct aspect of intelligence:
+- **Knowledge Agent**
+  - Retrieves contextual strategy guidance and relevant tactical cues.
+- **Planning Agent**
+  - Generates a high-level plan from the current game state plus retrieved context.
+- **Execution Agent**
+  - Applies the plan to concrete candidate actions and supports move selection logic.
+- **Learning Agent**
+  - Updates long-term behavior from wins/losses to improve future decisions.
 
--   **Knowledge Agent** – Provides strategic context by retrieving relevant game rules and tactics from pre‑loaded documents (e.g., strategy guides). It answers queries like “Chronos game strategy and piece value” and returns text snippets that influence move scoring.
+At runtime, the AI loops through: context retrieval → planning → move scoring/selection. After each match, learning updates influence future planning preferences.
 
--   **Planning Agent** – Generates a high‑level plan to guide move selection. It receives the current game state and the strategy context, then uses hierarchical task network (HTN) planning to produce a sequence of steps. Moves that align with this plan receive a scoring bonus.
-
--   **Execution Agent** – (Primarily for future expansion) Intended to carry out planned actions and handle low‑level execution details. Currently, move scoring is performed heuristically within the AI player, but this agent could bridge planning and physical/virtual action execution.
-
--   **Learning Agent** – Improves the AI over time by learning from game outcomes. After each match, it observes the result (win/loss) and updates an internal meta‑controller that selects among different learning strategies (DQN, MAML, RSI, RL). This enables the AI to adapt its behavior to different situations.
-
-These agents are orchestrated by the AIPlayer class during each turn: first gather knowledge, then create a plan, then score moves using the plan and knowledge, and finally learn from the game’s result.
-
+```mermaid
 flowchart TD
-    subgraph During_Turn [During a Turn]
-        A[Game State] --> B[Knowledge Agent]
-        A --> C[Planning Agent]
-        B -->|Strategy Context| C
-        C -->|High‑Level Plan| D[Execution / AIPlayer]
-        D -->|Heuristic Scoring| E[Selected Move]
-    end
+    A[Current Game State] --> B[Knowledge Agent]
+    A --> C[Planning Agent]
+    B -->|Strategic Context| C
+    C -->|High-Level Action Plan| D[Execution / Move Scoring]
+    D --> E[Chosen Move]
 
-    subgraph Post_Game [Post‑Game]
-        E --> F[Game Result]
-        F --> G[Learning Agent]
-        G -->|Updates Meta‑Controller| H[Improved Strategy Selection]
-        H -.->|Future Turns| C
-    end
-
-    style B fill:#e1f5fe,stroke:#01579b
-    style C fill:#fff3e0,stroke:#e65100
-    style D fill:#f1f8e9,stroke:#33691e
-    style G fill:#fce4ec,stroke:#880e4f
+    E --> F[Game Outcome]
+    F --> G[Learning Agent]
+    G -->|Policy/Preference Updates| C
+```
