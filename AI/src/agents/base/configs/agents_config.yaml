@@ -1,0 +1,205 @@
+sensitive_attributes: ["gender", "age_group", "race", "education_level"]
+
+base_agent:
+    defer_initialization: True
+    memory_profile: low
+    network_compression: True
+    max_error_log_size: 50
+    error_similarity_threshold: 0.75
+    max_task_retries: 0
+    task_timeout_seconds: None
+    task_similarity_str_threshold: 0.9
+    jaccard_threshold: 0.5
+    jaccard_min_for_no_shared: 0.7
+    final_key_threshold: 0.7
+    final_value_threshold: 0.7
+    task_similarity_seq_elem_threshold: 0.8
+
+collaborative_agent: {}
+
+adaptive_agent:
+    state_dim: 10
+    num_actions: 2
+    num_handlers: 3
+    max_episode_steps: 100
+
+alignment_agent:
+    safety_buffer: 0.1
+    learning_rate: 0.01
+    momentum: 0.9
+    risk_score:
+    risk_assessment:
+        total_risk: []
+    operation_limiter:
+        max_requests: 10
+        interval: 60
+        penalty: 'cool_down'
+    weight:
+        stat_parity: 0.4
+        equal_opp: 0.4
+        ethics: 0.2
+    corrections: {}
+    alignment_ttl: 604800
+    fail_safe_action_space: []
+    risk_threshold: 0.5
+    
+
+browser_agent: {}
+
+evaluation_agent:
+    risk_threshold: 0.5
+    memory_warning_threshold: 0.7
+    memory_critical_threshold: 0.9
+    model_dir: "AI/src/agents/evaluators/models/"
+    anomaly_detector: "AI/src/agents/evaluators/models/anomaly_detector.joblib"
+    deep_anomaly: "AI/src/agents/evaluators/models/deep_anomaly.pt"
+    initial_hazard_rates:
+        system_failure: 0.000001
+        sensor_failure: 0.00001
+        unexpected_behavior: 0.0001
+    update_interval: 60.0
+    decay_factor: 0.95
+    risk_thresholds:
+        warning: [0.4, 0.7]
+        critical: [0.7, 1.0]
+    risk_adaptation: {}
+    autonomous_tasks:
+        - id: "nav_test"
+    type: "navigation"
+    path: [[0,0], [1,1], [2,2]]
+    optimal_path: [[0,0], [2,2]]
+    completion_time: 10.0
+    energy_consumed: 100
+    collisions: 0
+    success: true
+
+issue_database:
+    host: 'localhost'
+    port: 5432
+    database: 'ai_issues'
+    user: 'user'
+    password: ''
+
+operations_notification:
+    email:
+        enabled: true
+        from: "ai-agent@yourdomain.com"
+        to: "ops@yourdomain.com"
+        subject: "URGENT: AI System Hazard"
+        smtp_host: "smtp.yourdomain.com"
+        smtp_port: 587
+        username: "ai-agent"
+        password: "secure-password"
+        use_tls: true
+
+    webhook:
+        enabled: true
+        url: "https://hooks.slack.com/services/..."
+
+    external_logging:
+        enabled: true
+        url: "https://logging-service.yourdomain.com/ingest"
+
+execution_agent: {}
+
+knowledge_agent:
+    source: "local_files"
+    is_query: True
+    stopwords: "AI/src/agents/language/templates/stopwords.json"
+    knowledge_ontology_path: "AI/src/agents/knowledge/utils/knowledge_ontology.db"
+    use_graph_ontology: True  # False for in-memory
+    ontology_threshold: 500   # Switch to graph DB at this size
+    in_memory_cache: True  # Whether to keep in-memory cache
+    cache_size: 1000
+    bias_threshold: 0.87
+    bias_detection_enabled: True
+    embedding_model: "AI/src/agents/knowledge/models/all-MiniLM-L6-v2"
+    directory_path: "AI/src/agents/knowledge/templates/"
+    similarity_threshold: 0.35
+    use_ontology_expansion: True
+    first_pass: True
+    decay_factor: 0.95
+    context_window: 10
+    knowledge_tag: "knowledge_snippet"
+    ttl: 600
+    retrieval_mode: "hybrid"
+    safety_check_callback: foodie_security.validate_action
+    max_workers: 8
+
+language_agent: {}
+
+learning_agent:
+    rl_algorithm: null
+    embedding_dim: 512
+    strategy_weights: [0.25, 0.25, 0.25, 0.25]
+    prediction_weights: [0.25, 0.25, 0.25, 0.25]
+    maml_task_pool_size: 100
+    rsi_improvement_cycle: 50
+    performance_threshold: 0.7
+    data_change_threshold: 0.15
+    retraining_interval_hours: 24
+    novelty_threshold: 0.3
+    uncertainty_threshold: 0.25
+    embedding_buffer_size: 512
+    performance_history_size: 1000
+    error_history_size: 100
+    state_recency_size: 1000
+    architecture_history_size: 10
+    maml_adaptation_steps: 10
+    task_embedding_dim: 256
+    deferred_init:
+        max_network_size: 256
+        max_task_pool: 50
+        max_history: 500
+
+perception_agent:
+    device: "cpu"
+    embed_dim: 512
+    masking_ratio: 0.15
+    contrastive_temperature: 0.07
+    learning_rate: 0.0001
+    weight_decay: 0.01
+    adam_betas: [0.9, 0.999]
+    adam_eps: 0.0000001
+    loss_type: 'hybrid'  # mse, contrastive, or hybrid
+    max_scale: 3
+    temperature: 0.07
+    mse_weight: 0.5      # for hybrid loss
+    contrastive_weight: 0.5  # for hybrid loss
+
+planning_agent: {}
+
+reasoning_agent:
+    learning_rate: 0.01
+    exploration_rate: 0.1
+    tuple_key: ["subject", "predicate", "object"]
+    hypothesis_graph:
+        nodes: {}
+        edges: {}
+        confedence: 0.0
+    language_config_path: "AI/src/agents/language/configs/language_config.yaml"
+    knowledge_db: "AI/src/agents/knowledge/templates/knowledge_db.json"
+    glove_path: "data/embeddings/glove.6B.200d.json"
+    ner_tag: None
+    embedding: None
+    decay: 0.8
+    max_iterations: 100
+
+safety_agent:
+    constitutional_rules_path: "AI/src/agents/safety/templates/constitutional_rules.json"
+    audit_level: 2
+    collect_feedback: true
+    enable_learnable_aggregation: true
+    system_models: {}
+    known_hazards: []
+    global_losses: []
+    safety_policies: []
+    architecture_map: {}
+    formal_specs: {}
+    fault_tree_config: {}
+    risk_thresholds:
+        overall_safety: 0.85
+        cyber_risk: 0.7
+        compliance_failure_is_blocker: true
+    secure_memory:
+        default_ttl_seconds: 3600
