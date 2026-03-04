@@ -53,6 +53,8 @@ class AIPlayer:
                 "core_control": 1.0,
                 "safety": 1.0,
             }
+            self._result_window = []
+            self._board_preferences = {}
             
             logger.info("AI Player initialized with Knowledge, Planning, Execution, and Learning agents.")
         except Exception as e:
@@ -119,6 +121,13 @@ class AIPlayer:
 
             # 3. Execution: Score each valid move and select the best one
             # We'll use the ExecutionAgent's action selector logic conceptually
+            board_size = self._board_size(game_state)
+            self._adapt_style_for_board(board_size)
+            opening_move = self._select_opening_pattern_move(valid_moves, game_state)
+            if opening_move:
+                logger.info(f"AI selected opening pattern move: {opening_move}")
+                return opening_move
+
             best_move = None
             max_score = -float('inf')
 
@@ -168,7 +177,7 @@ class AIPlayer:
         # Multipliers: Center = 2x, Adjacent = 1x
         if tr == 4 and tc == 4:
             score += 100 * self._style_weights["core_control"]
-        elif self._is_core_cell(tr, tc):
+        elif self._is_core_cell(tr, tc, self._board_size(game_state)):
             score += 40 * self._style_weights["core_control"]
             
         # 2. Attack (High Priority)
@@ -210,7 +219,7 @@ class AIPlayer:
 
         # 6. Strategic Context (from Knowledge Agent)
         strategy_lower = strategy.lower()
-        if "core control" in strategy_lower and self._is_core_cell(tr, tc):
+        if "core control" in strategy_lower and self._is_core_cell(tr, tc, self._board_size(game_state)):
             score += 15
         if "aggressive" in strategy_lower and move_type == 'attack':
             score += 15
@@ -323,8 +332,9 @@ class AIPlayer:
             return 0
         r, c = destination
         mobility = 0
-        for nr in range(max(0, r - 2), min(8, r + 2) + 1):
-            for nc in range(max(0, c - 2), min(8, c + 2) + 1):
+        board_size = self._max_board_index(game_state=None, unit_map=unit_map, board_map=board_map) + 1
+        for nr in range(max(0, r - 2), min(board_size - 1, r + 2) + 1):
+            for nc in range(max(0, c - 2), min(board_size - 1, c + 2) + 1):
                 if (nr, nc) == (r, c):
                     continue
                 if (nr, nc) not in board_map:
@@ -355,15 +365,67 @@ class AIPlayer:
                 ar, ac = ally.get("r"), ally.get("c")
                 if ar is None or ac is None:
                     continue
-                if max(abs(dr - ar), abs(dc - ac)) <= 1 and self._is_core_cell(ar, ac):
+                if max(abs(dr - ar), abs(dc - ac)) <= 1 and self._is_core_cell(ar, ac, self._max_board_index(game_state=None, unit_map=unit_map, board_map=board_map) + 1):
                     score += 8
         return score
 
-    def _is_core_cell(self, r, c):
-        # 3x3 core in the center of 9x9 board (3,3 to 5,5)
+    def _is_core_cell(self, r, c, board_size=9):
         if r is None or c is None:
             return False
-        return 3 <= r <= 5 and 3 <= c <= 5
+        center = board_size // 2
+        return (center - 1) <= r <= (center + 1) and (center - 1) <= c <= (center + 1)
+
+    def _board_size(self, game_state):
+        board = game_state.get('board', []) if isinstance(game_state, dict) else []
+        if isinstance(board, list) and board:
+            return len(board)
+        return 9
+
+    def _max_board_index(self, game_state=None, unit_map=None, board_map=None):
+        if game_state is not None:
+            return self._board_size(game_state) - 1
+        coords = []
+        if isinstance(unit_map, dict):
+            coords.extend([(u.get('r'), u.get('c')) for u in unit_map.values()])
+        if isinstance(board_map, dict):
+            coords.extend(list(board_map.keys()))
+        max_coord = 8
+        for r, c in coords:
+            if isinstance(r, int):
+                max_coord = max(max_coord, r)
+            if isinstance(c, int):
+                max_coord = max(max_coord, c)
+        return max_coord
+
+    def _adapt_style_for_board(self, board_size):
+        board_bias = max(0, board_size - 9)
+        self._style_weights['core_control'] = min(1.6, 1.0 + board_bias * 0.05)
+        self._style_weights['aggression'] = max(0.85, 1.05 - board_bias * 0.02)
+
+    def _select_opening_pattern_move(self, valid_moves, game_state):
+        if not isinstance(valid_moves, list) or not valid_moves:
+            return None
+
+        round_idx = game_state.get('round', 0)
+        if round_idx > 1:
+            return None
+
+        board_size = self._board_size(game_state)
+        center = board_size // 2
+        preferred_targets = [
+            (center - 1, center),
+            (center, center),
+            (center + 1, center),
+        ]
+
+        for target_r, target_c in preferred_targets:
+            for move in valid_moves:
+                if move.get('type') != 'move':
+                    continue
+                target = move.get('target') or move.get('params', {}).get('target') or {}
+                if isinstance(target, dict) and target.get('r') == target_r and target.get('c') == target_c:
+                    return move
+        return None
 
     def _extract_units(self, game_state):
         """Return a normalized flat list of unit dicts from varying payload shapes."""
@@ -459,7 +521,22 @@ class AIPlayer:
                 self._style_weights["safety"] = min(1.5, self._style_weights["safety"] + 0.06)
                 self._style_weights["aggression"] = max(0.8, self._style_weights["aggression"] - 0.03)
 
+            board_size = int(result.get('board_size', 9)) if result.get('board_size') else 9
+            self._result_window.append(outcome)
+            self._result_window = self._result_window[-10:]
+
+            losses = len([item for item in self._result_window if item == 'loss'])
+            if losses >= 3:
+                self._style_weights['safety'] = min(1.6, self._style_weights['safety'] + 0.03)
+
+            board_pref = self._board_preferences.setdefault(board_size, {'wins': 0, 'losses': 0})
+            if outcome == 'win':
+                board_pref['wins'] += 1
+            elif outcome == 'loss':
+                board_pref['losses'] += 1
+
             self.shared_memory.set('ai_style_weights', dict(self._style_weights))
+            self.shared_memory.set('ai_board_preferences', dict(self._board_preferences))
             return True
         except Exception as e:
             logger.error(f"Error in learn_from_game: {e}", exc_info=True)
