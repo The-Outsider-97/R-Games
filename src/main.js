@@ -14,11 +14,91 @@ const turnIndicatorEl = document.getElementById('turn-indicator');
 const phaseIndicatorEl = document.getElementById('phase-indicator');
 const tokenContainerEl = document.getElementById('token-container');
 const actionButtonsEl = document.getElementById('action-buttons');
+const sidePanelTitleEl = document.getElementById('side-panel-title');
+const commsTabBtn = document.getElementById('comms-tab-btn');
+const scoreboardTabBtn = document.getElementById('scoreboard-tab-btn');
+const commsPanelEl = document.getElementById('comms-panel');
+const scoreboardPanelEl = document.getElementById('scoreboard-panel');
+const scoreboardContentEl = document.getElementById('scoreboard-content');
+
+const SCOREBOARD_STORAGE_KEY = 'chronos_scoreboard_history_v1';
+let activeSidePanel = 'comms';
 
 function initGame() {
   game = new Game();
   render();
   log("Game Started. Player 1's Turn.");
+}
+
+function getMatchHistory() {
+  try {
+    const stored = localStorage.getItem(SCOREBOARD_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMatchRecord(record) {
+  const history = getMatchHistory();
+  history.unshift(record);
+  localStorage.setItem(SCOREBOARD_STORAGE_KEY, JSON.stringify(history.slice(0, 12)));
+}
+
+function renderScoreboardPanel() {
+  if (!scoreboardContentEl) return;
+  const history = getMatchHistory();
+
+  if (!history.length) {
+    scoreboardContentEl.innerHTML = '<div class="text-slate-500 italic text-center">No completed matches yet.</div>';
+    return;
+  }
+
+  scoreboardContentEl.innerHTML = `
+    <div class="flex flex-col gap-3">
+      ${history.map((entry, idx) => {
+        const winnerClass = entry.winner === 'Player 1'
+          ? 'text-sky-blue'
+          : entry.winner === 'Player 2'
+            ? 'text-traffic-red'
+            : 'text-yellow-400';
+        return `
+          <div class="rounded-xl border border-white/10 bg-black/30 p-3 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="text-[10px] tracking-widest uppercase text-slate-500">Match ${history.length - idx}</div>
+              <div class="text-[10px] text-slate-600">${entry.timestamp}</div>
+            </div>
+            <div class="text-[11px]"><span class="text-slate-500">Winner:</span> <span class="font-bold ${winnerClass}">${entry.winner}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Points (P1/P2):</span> <span class="font-mono text-white">${entry.p1Points} / ${entry.p2Points}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Point Diff:</span> <span class="font-mono text-white">${entry.pointDifference}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Center Core Captured:</span> <span class="text-white">${entry.centerCoreCaptured ? 'Yes' : 'No'}</span></div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function switchSidePanel(panelName) {
+  activeSidePanel = panelName;
+  const showingComms = panelName === 'comms';
+
+  if (sidePanelTitleEl) sidePanelTitleEl.textContent = showingComms ? 'Comms Link' : 'Scoreboard';
+  if (commsPanelEl) commsPanelEl.classList.toggle('hidden', !showingComms);
+  if (scoreboardPanelEl) scoreboardPanelEl.classList.toggle('hidden', showingComms);
+
+  if (commsTabBtn) {
+    commsTabBtn.className = `px-3 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase ${showingComms ? 'bg-sky-blue text-white' : 'text-slate-400'}`;
+  }
+
+  if (scoreboardTabBtn) {
+    scoreboardTabBtn.className = `px-3 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase ${showingComms ? 'text-slate-400' : 'bg-sky-blue text-white'}`;
+  }
+
+  if (!showingComms) {
+    renderScoreboardPanel();
+  }
 }
 
 function log(msg) {
@@ -54,6 +134,23 @@ function render() {
 
 function renderGameOver() {
   reportGameResult();
+    const p1Score = game.getCorePoints(0);
+  const p2Score = game.getCorePoints(1);
+
+  const centerUnit = game.board.getUnitAt(4, 4);
+  const centerCoreCaptured = Boolean(centerUnit && centerUnit.health > 0 && centerUnit.playerId === game.winner);
+  const winnerLabel = game.winner === 0 ? 'Player 1' : game.winner === 1 ? 'Player 2' : 'Draw';
+  const pointDifference = Math.abs(p1Score - p2Score);
+  saveMatchRecord({
+    winner: winnerLabel,
+    p1Points: p1Score,
+    p2Points: p2Score,
+    pointDifference,
+    centerCoreCaptured,
+    timestamp: new Date().toLocaleString()
+  });
+  renderScoreboardPanel();
+
   let modal = document.getElementById('game-over-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -66,9 +163,6 @@ function renderGameOver() {
   const winnerText = isP1Win ? "VICTORY" : "DEFEAT";
   const winnerSubText = isP1Win ? "STRATEGIC DOMINANCE ACHIEVED" : "TACTICAL FAILURE DETECTED";
   const winnerColor = isP1Win ? "text-sky-blue drop-shadow-[0_0_20px_rgba(0,113,164,0.5)]" : "text-traffic-red drop-shadow-[0_0_20px_rgba(203,6,5,0.5)]";
-  
-  const p1Score = game.getCorePoints(0);
-  const p2Score = game.getCorePoints(1);
 
   modal.innerHTML = `
     <div class="glass-panel p-12 rounded-[2rem] shadow-2xl flex flex-col items-center gap-8 max-w-lg w-full mx-4 relative overflow-hidden ring-1 ring-white/10">
@@ -835,6 +929,13 @@ function resetSelection() {
 
 // Start
 initGame();
+renderScoreboardPanel();
+switchSidePanel(activeSidePanel);
+
+if (commsTabBtn && scoreboardTabBtn) {
+  commsTabBtn.onclick = () => switchSidePanel('comms');
+  scoreboardTabBtn.onclick = () => switchSidePanel('scoreboard');
+}
 
 // Chat Logic
 const chatInput = document.getElementById('chat-input');
