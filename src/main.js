@@ -115,6 +115,7 @@ function renderScoreboardPanel() {
             <div class="text-[11px]"><span class="text-slate-500">Winner:</span> <span class="font-bold ${winnerClass}">${entry.winner}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Points (P1/P2):</span> <span class="font-mono text-white">${entry.p1Points} / ${entry.p2Points}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Point Diff:</span> <span class="font-mono text-white">${entry.pointDifference}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Turns:</span> <span class="font-mono text-white">${entry.turnCount ?? '-'}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Center Core Captured:</span> <span class="text-white">${entry.centerCoreCaptured ? 'Yes' : 'No'}</span></div>
           </div>
         `;
@@ -191,6 +192,7 @@ function renderGameOver() {
     p2Points: p2Score,
     pointDifference,
     centerCoreCaptured,
+    turnCount: game.turnCount,
     timestamp: new Date().toLocaleString()
   });
   renderScoreboardPanel();
