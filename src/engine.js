@@ -368,19 +368,22 @@ export class Game {
     
     const player = this.players[playerId];
     if (!player.canUseToken(token)) return false;
-    if (!unit.canAct(this.round)) return false;
 
-    // Check if unit already acted in this timeline
-    for (let i = 0; i < 5; i++) {
-      const [a0, a1] = this.timeline[i];
-      if ((a0 && a0.unit === unit) || (a1 && a1.unit === unit)) return false;
+    if (actionType !== ActionType.PASS) {
+      if (!unit || !unit.canAct(this.round)) return false;
+
+      // Check if unit already acted in this timeline
+      for (let i = 0; i < 5; i++) {
+        const [a0, a1] = this.timeline[i];
+        if ((a0 && a0.unit === unit) || (a1 && a1.unit === unit)) return false;
+      }
     }
 
     const action = {
       token,
-      unit,
+      unit: actionType === ActionType.PASS ? null : unit,
       type: actionType,
-      params
+      params: params || {}
     };
 
     this.timeline[slot][playerId] = action;
@@ -410,8 +413,8 @@ export class Game {
     const results = [];
 
     // Mark acting units
-    if (p0Act) this.actingUnits.add(p0Act.unit);
-    if (p1Act) this.actingUnits.add(p1Act.unit);
+    if (p0Act && p0Act.unit) this.actingUnits.add(p0Act.unit);
+    if (p1Act && p1Act.unit) this.actingUnits.add(p1Act.unit);
 
     // 1. Resolve Attacks
     const unitsToKill = new Set();
@@ -653,7 +656,6 @@ export class Game {
     });
 
     this.currentSlot++;
-    this.turnCount++;
     
     if (!this.winner) {
       this.checkWinConditions();
@@ -678,12 +680,13 @@ export class Game {
 
     this.players.forEach(p => {
       this.actingUnits.forEach(u => {
-        if (u.playerId === p.id) u.fatigueUntilRound = this.round + 1;
+        if (u && u.playerId === p.id) u.fatigueUntilRound = this.round + 1;
       });
       p.resetTokens();
     });
   
     this.round++;
+    this.turnCount++;
     this.timeline = Array(5).fill(null).map(() => [null, null]);
     this.phase = 'planning';
     this.currentSlot = 0;
@@ -737,8 +740,8 @@ export class Game {
     // Filter units that already acted in current timeline
     const actedUnits = new Set();
     this.timeline.forEach(([a0, a1]) => {
-      if (a0 && a0.unit.playerId === playerId) actedUnits.add(a0.unit);
-      if (a1 && a1.unit.playerId === playerId) actedUnits.add(a1.unit);
+      if (a0 && a0.unit && a0.unit.playerId === playerId) actedUnits.add(a0.unit);
+      if (a1 && a1.unit && a1.unit.playerId === playerId) actedUnits.add(a1.unit);
     });
 
     const activeUnits = player.getActiveUnits(this.round).filter(u => !actedUnits.has(u));
@@ -790,18 +793,24 @@ export class Game {
 
   executeRemoteMove(move) {
     if (!move) return false;
-    
+
+    const playerId = typeof move.playerId === 'number' ? move.playerId : this.currentPlayerId;
+    const token = move.tokenId;
+    const actionType = move.type || ActionType.PASS;
+
+    if (!token) return false;
+
+    if (actionType === ActionType.PASS) {
+      return this.placeAction(playerId, this.currentSlot, token, null, ActionType.PASS, {});
+    }
+
     const unit = this.units.find(u => u.id === move.unitId);
     if (!unit) return false;
-    
-    const token = move.tokenId; // ID or string?
-    // In engine, tokens are strings like 'move', 'attack' or just generic tokens?
-    // In Player class: this.tokens = ['T1', 'T2', ...]
-    
+
     const params = {};
     if (move.target) params.target = move.target;
-    
-    return this.placeAction(unit.playerId, this.currentSlot, token, unit, move.type, params);
+
+    return this.placeAction(unit.playerId, this.currentSlot, token, unit, actionType, params);
   }
 
   aiMove(playerId) {
@@ -810,20 +819,17 @@ export class Game {
     // Filter units that already acted in current timeline
     const actedUnits = new Set();
     this.timeline.forEach(([a0, a1]) => {
-      if (a0 && a0.unit.playerId === playerId) actedUnits.add(a0.unit);
-      if (a1 && a1.unit.playerId === playerId) actedUnits.add(a1.unit);
+      if (a0 && a0.unit && a0.unit.playerId === playerId) actedUnits.add(a0.unit);
+      if (a1 && a1.unit && a1.unit.playerId === playerId) actedUnits.add(a1.unit);
     });
 
     const activeUnits = player.getActiveUnits(this.round).filter(u => !actedUnits.has(u));
     
     if (activeUnits.length === 0) {
-      // Must pass? Or just pick a random token and do nothing?
-      // Game rules don't specify pass. Assuming we must pick a token and waste it if no units.
-      // But let's try to find a valid move.
-      // If no units can act, we might just skip turn or place a dummy action.
-      // For now, let's just pick a random token and a random unit (even if fatigued, though canAct filters them)
-      // If absolutely no units, we can't place.
-      return false;
+      const availableTokens = player.tokens.filter(t => !player.usedTokens.has(t));
+      if (!availableTokens.length) return false;
+      const token = availableTokens[Math.floor(Math.random() * availableTokens.length)];
+      return this.placeAction(playerId, this.currentSlot, token, null, ActionType.PASS, {});
     }
 
     const unit = activeUnits[Math.floor(Math.random() * activeUnits.length)];
@@ -833,7 +839,12 @@ export class Game {
     if (possible.attack.length) types.push('attack');
     if (possible.claim) types.push('claim');
 
-    if (types.length === 0) return false; // Should not happen if unit is active usually
+    if (types.length === 0) {
+      const availableTokens = player.tokens.filter(t => !player.usedTokens.has(t));
+      if (!availableTokens.length) return false;
+      const token = availableTokens[Math.floor(Math.random() * availableTokens.length)];
+      return this.placeAction(playerId, this.currentSlot, token, null, ActionType.PASS, {});
+    }
 
     const type = types[Math.floor(Math.random() * types.length)];
     
