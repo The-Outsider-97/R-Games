@@ -56,5 +56,6 @@ export function applyBoardSize(boardSize) {
 export const ActionType = {
   MOVE: 'move',
   ATTACK: 'attack',
-  CLAIM: 'claim'
+  CLAIM: 'claim',
+  PASS: 'pass'
 };
