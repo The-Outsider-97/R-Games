@@ -148,7 +148,9 @@ export class Game {
     ];
     this.players.forEach(p => p.createUnits());
     
-    this.timeline = Array(5).fill(null).map(() => [null, null]); // [p0_action, p1_action]
+    this.requiredActionsPerPlayer = [5, 5];
+    this.slotLimit = 5;
+    this.timeline = Array(this.slotLimit).fill(null).map(() => [null, null]); // [p0_action, p1_action]
     this.round = 0;
     this.phase = 'planning'; // 'planning' | 'resolution' | 'game_over'
     this.currentSlot = 0;
@@ -160,6 +162,8 @@ export class Game {
     this.allowStrategoslessPlay = false;
     this.pendingMutualStrategosDecision = null;
     this.logs = [];
+
+    this.configureRoundActionPlan();
   }
 
   get units() {
@@ -168,6 +172,64 @@ export class Game {
 
   log(msg) {
     this.logs.push(`[Round ${this.round + 1}] ${msg}`);
+  }
+
+  getRequiredActionsForPlayer(playerId) {
+    const activeCount = this.players[playerId].getActiveUnits(this.round).length;
+    return activeCount < 5 ? activeCount : 5;
+  }
+
+  getPlacedActionCount(playerId) {
+    return this.timeline.reduce((count, [a0, a1]) => count + ((playerId === 0 ? a0 : a1) ? 1 : 0), 0);
+  }
+
+  hasPlayerFinishedPlanning(playerId) {
+    return this.getPlacedActionCount(playerId) >= this.requiredActionsPerPlayer[playerId];
+  }
+
+  configureRoundActionPlan() {
+    this.requiredActionsPerPlayer = [
+      this.getRequiredActionsForPlayer(0),
+      this.getRequiredActionsForPlayer(1)
+    ];
+    this.slotLimit = Math.max(this.requiredActionsPerPlayer[0], this.requiredActionsPerPlayer[1], 1);
+    this.timeline = Array(this.slotLimit).fill(null).map(() => [null, null]);
+  }
+
+  advancePlanningCursor() {
+    if (this.phase !== 'planning') return;
+
+    while (this.currentSlot < this.slotLimit) {
+      const p0Done = this.hasPlayerFinishedPlanning(0);
+      const p1Done = this.hasPlayerFinishedPlanning(1);
+
+      if (p0Done && p1Done) {
+        this.phase = 'resolution';
+        this.currentSlot = 0;
+        this.log("Planning phase complete. Starting resolution.");
+        return;
+      }
+
+      if (!this.hasPlayerFinishedPlanning(this.currentPlayerId) && !this.timeline[this.currentSlot][this.currentPlayerId]) {
+        return;
+      }
+
+      if (this.currentPlayerId === 0) {
+        if (!p1Done && !this.timeline[this.currentSlot][1]) {
+          this.currentPlayerId = 1;
+        } else {
+          this.currentSlot++;
+          this.currentPlayerId = 0;
+        }
+      } else {
+        this.currentSlot++;
+        this.currentPlayerId = 0;
+      }
+    }
+
+    this.phase = 'resolution';
+    this.currentSlot = 0;
+    this.log("Planning phase complete. Starting resolution.");
   }
 
   getCorePoints(playerId) {
@@ -208,9 +270,9 @@ export class Game {
     if (p0Choice === 'continue' && p1Choice === 'continue') {
       this.allowStrategoslessPlay = true;
       this.pendingMutualStrategosDecision = null;
-      this.phase = this.currentSlot >= 5 ? 'planning' : 'resolution';
+      this.phase = this.currentSlot >= this.timeline.length ? 'planning' : 'resolution';
       this.log('Both players chose to continue. Match proceeds without Strategos units.');
-      if (this.currentSlot >= 5 && !this.winner) {
+      if (this.currentSlot >= this.timeline.length && !this.winner) {
         this.endRound();
       }
       return true;
@@ -365,6 +427,7 @@ export class Game {
     if (this.phase !== 'planning') return false;
     if (playerId !== this.currentPlayerId) return false;
     if (slot !== this.currentSlot) return false;
+    if (this.hasPlayerFinishedPlanning(playerId)) return false;
     
     const player = this.players[playerId];
     if (!player.canUseToken(token)) return false;
@@ -373,10 +436,14 @@ export class Game {
       if (!unit || !unit.canAct(this.round)) return false;
 
       // Check if unit already acted in this timeline
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < this.timeline.length; i++) {
         const [a0, a1] = this.timeline[i];
         if ((a0 && a0.unit === unit) || (a1 && a1.unit === unit)) return false;
       }
+    }
+
+    if (actionType === ActionType.PASS && this.requiredActionsPerPlayer[playerId] < 5) {
+      return false;
     }
 
     const action = {
@@ -390,23 +457,13 @@ export class Game {
     player.useToken(token);
 
     // Turn logic
-    if (this.currentPlayerId === 0) {
-      this.currentPlayerId = 1;
-    } else {
-      this.currentPlayerId = 0;
-      this.currentSlot++;
-      if (this.currentSlot >= 5) {
-        this.phase = 'resolution';
-        this.currentSlot = 0;
-        this.log("Planning phase complete. Starting resolution.");
-      }
-    }
+    this.advancePlanningCursor();
     return true;
   }
 
   resolveNextSlot() {
     if (this.phase !== 'resolution') return null;
-    if (this.currentSlot >= 5) return null;
+    if (this.currentSlot >= this.timeline.length) return null;
 
     const slotIdx = this.currentSlot;
     const [p0Act, p1Act] = this.timeline[slotIdx];
@@ -661,7 +718,7 @@ export class Game {
       this.checkWinConditions();
     }
 
-    if (this.currentSlot >= 5 && !this.winner) {
+    if (this.currentSlot >= this.timeline.length && !this.winner) {
       this.endRound();
     }
 
@@ -687,7 +744,7 @@ export class Game {
   
     this.round++;
     this.turnCount++;
-    this.timeline = Array(5).fill(null).map(() => [null, null]);
+    this.configureRoundActionPlan();
     this.phase = 'planning';
     this.currentSlot = 0;
     this.currentPlayerId = 0; // or alternate? we'll keep P1 starting
@@ -808,7 +865,31 @@ export class Game {
     if (!unit) return false;
 
     const params = {};
-    if (move.target) params.target = move.target;
+    if (move.target) {
+      if (actionType === ActionType.ATTACK) {
+        const targetId = typeof move.target === 'object' ? move.target.id : null;
+        let targetUnit = targetId ? this.units.find(u => u.id === targetId && u.health > 0) : null;
+
+        if (!targetUnit && typeof move.target === 'object') {
+          const targetRow = Number.isInteger(move.target.r) ? move.target.r : move.target.row;
+          const targetCol = Number.isInteger(move.target.c) ? move.target.c : move.target.col;
+          if (Number.isInteger(targetRow) && Number.isInteger(targetCol)) {
+            const byPosition = this.board.getUnitAt(targetRow, targetCol);
+            if (byPosition && byPosition.health > 0) {
+              targetUnit = byPosition;
+            }
+          }
+        }
+
+        if (!targetUnit || targetUnit.playerId === unit.playerId) return false;
+        params.target = targetUnit;
+      } else if (actionType === ActionType.MOVE && typeof move.target === 'object') {
+        const row = Number.isInteger(move.target.r) ? move.target.r : move.target.row;
+        const col = Number.isInteger(move.target.c) ? move.target.c : move.target.col;
+        if (!Number.isInteger(row) || !Number.isInteger(col)) return false;
+        params.target = { r: row, c: col };
+      }
+    }
 
     return this.placeAction(unit.playerId, this.currentSlot, token, unit, actionType, params);
   }
