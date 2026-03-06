@@ -115,7 +115,7 @@ function renderScoreboardPanel() {
             <div class="text-[11px]"><span class="text-slate-500">Winner:</span> <span class="font-bold ${winnerClass}">${entry.winner}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Points (P1/P2):</span> <span class="font-mono text-white">${entry.p1Points} / ${entry.p2Points}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Point Diff:</span> <span class="font-mono text-white">${entry.pointDifference}</span></div>
-            <div class="text-[11px]"><span class="text-slate-500">Turns:</span> <span class="font-mono text-white">${entry.turnCount ?? '-'}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Rounds:</span> <span class="font-mono text-white">${entry.turnCount ?? '-'}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Center Core Captured:</span> <span class="text-white">${entry.centerCoreCaptured ? 'Yes' : 'No'}</span></div>
           </div>
         `;
@@ -782,6 +782,7 @@ function renderInfo() {
           <div class="text-traffic-red">P2: ${p2CorePoints}</div>
         </div>
         <div class="text-[10px] text-slate-600 mt-1">TARGET: 5+</div>
+        <div class="text-[10px] text-slate-500 mt-1">ROUNDS COMPLETED: <span class="font-mono text-white">${game.turnCount}</span></div>
       </div>
     `;
   }
@@ -910,9 +911,35 @@ function updateControls() {
   }
 
   // Human Turn
+  const humanPlayer = game.players[0];
+  const actedUnits = new Set();
+  game.timeline.forEach(([a0, a1]) => {
+    if (a0 && a0.unit && a0.unit.playerId === 0) actedUnits.add(a0.unit);
+    if (a1 && a1.unit && a1.unit.playerId === 0) actedUnits.add(a1.unit);
+  });
+
+  const activeHumanUnits = humanPlayer.getActiveUnits(game.round).filter(u => !actedUnits.has(u));
+
+  if (selectedToken) {
+    const passBtn = document.createElement('button');
+    passBtn.textContent = 'PASS TURN';
+    passBtn.className = 'px-4 py-2 rounded font-bold tracking-wider w-full bg-slate-700 hover:bg-slate-600 text-white';
+    passBtn.onclick = () => {
+      const success = game.placeAction(0, game.currentSlot, selectedToken, null, ActionType.PASS, {});
+      if (success) {
+        log(`Placed PASS with token ${selectedToken}`);
+        resetSelection();
+        render();
+      }
+    };
+    actionButtonsEl.appendChild(passBtn);
+  }
+
   if (!selectedUnit) {
     const hint = document.createElement('div');
-    hint.textContent = "Select a unit to act.";
+    hint.textContent = activeHumanUnits.length
+      ? "Select a unit to act."
+      : "No units can act this slot. Select a token and use PASS TURN.";
     hint.className = "text-slate-400 text-sm text-center italic";
     actionButtonsEl.appendChild(hint);
     return;
