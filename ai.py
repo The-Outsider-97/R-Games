@@ -2,7 +2,15 @@ import sys
 import os
 import json
 import logging
+import random
+from datetime import datetime
 import numpy as np
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
@@ -24,7 +32,6 @@ except ImportError as e:
     print(f"Error importing modules: {e}")
     raise
 
-# Configure logging
 logger = get_logger("AI_Main")
 
 class AIPlayer:
@@ -55,6 +62,16 @@ class AIPlayer:
             }
             self._result_window = []
             self._board_preferences = {}
+            self._rl_alpha = 0.2
+            self._rl_gamma = 0.92
+            self._rl_epsilon = 0.12
+            self._rl_scale = 18.0
+            self._rl_q_table = {}
+            self._episode_trace = []
+            self._performance_log = []
+            self._current_game_id = None
+            self._learning_store_path = project_root / "AI" / "logs" / "chronos_learning_state.json"
+            self._load_learning_state()
             
             logger.info("AI Player initialized with Knowledge, Planning, Execution, and Learning agents.")
         except Exception as e:
@@ -127,10 +144,13 @@ class AIPlayer:
 
             # 3. Execution: bridge high-level plan to concrete action selection.
             board_size = self._board_size(game_state)
+            self._prepare_episode_tracking(game_state)
             self._adapt_style_for_board(board_size)
+            self._apply_learning_strategy(game_state)
             opening_move = self._select_opening_pattern_move(valid_moves, game_state)
             if opening_move:
                 logger.info(f"AI selected opening pattern move: {opening_move}")
+                self._record_episode_step(game_state, opening_move)
                 return opening_move
 
             best_move, best_score = self._select_move_via_execution_agent(
@@ -140,6 +160,7 @@ class AIPlayer:
                 plan=plan,
             )
             logger.info(f"AI selected move with score {best_score}: {best_move}")
+            self._record_episode_step(game_state, best_move)
             return best_move
 
         except Exception as e:
@@ -267,7 +288,12 @@ class AIPlayer:
         # 7. Tactical priorities
         score += self._score_tactical_objectives(move, acting_unit, unit_map, board_map)
 
-        # 8. Random factor for variety
+        # 8. RL value bonus + small stochasticity for exploration.
+        state_key = self._encode_state(game_state)
+        action_key = self._encode_action(move, acting_unit, game_state)
+        score += self._rl_scale * self._q_value(state_key, action_key)
+
+        # 9. Random factor for variety
         import random
         score += random.uniform(0, 5)
         
@@ -647,17 +673,10 @@ class AIPlayer:
     def learn_from_game(self, result):
         try:
             logger.info(f"Learning from game result: {result.get('outcome')}")
-            # Pass the result to the learning agent
-            if self.learning_agent:
-                # We simulate an observation for the learning agent
-                # In a real RL setup, this would update the policy weights
-                self.learning_agent.observe(
-                    task_embedding=np.zeros(256), # Dummy embedding
-                    best_agent_strategy_name="planning" if result.get('outcome') == 'win' else 'rl'
-                )
-
-            # Lightweight online adaptation: tune strategic style with reward shaping.
             outcome = (result.get('outcome') or '').lower()
+            board_size = int(result.get('board_size', 9)) if result.get('board_size') else 9
+
+            # Reward is tied to final match score (AI controls player 2).
             reward = result.get('reward')
             if reward is None:
                 final_score = result.get('final_score')
@@ -672,16 +691,27 @@ class AIPlayer:
                 except (TypeError, ValueError):
                     reward = 0.0
 
-                self._style_weights["aggression"] = max(0.7, min(1.6, self._style_weights["aggression"] + (0.08 * reward)))
-                self._style_weights["core_control"] = max(0.7, min(1.6, self._style_weights["core_control"] + (0.05 * reward)))
-                self._style_weights["safety"] = max(0.7, min(1.7, self._style_weights["safety"] - (0.06 * reward)))
+            # Monte-Carlo RL update: propagate terminal reward through the full game trajectory.
+            if self._episode_trace:
+                discounted_return = float(reward)
+                for state_key, action_key in reversed(self._episode_trace):
+                    old_q = self._q_value(state_key, action_key)
+                    updated_q = old_q + self._rl_alpha * (discounted_return - old_q)
+                    self._set_q_value(state_key, action_key, updated_q)
+                    discounted_return *= self._rl_gamma
+
+            self._log_performance(result, reward)
+            self._episode_trace = []
+
+            self._style_weights["aggression"] = max(0.7, min(1.6, self._style_weights["aggression"] + (0.08 * reward)))
+            self._style_weights["core_control"] = max(0.7, min(1.6, self._style_weights["core_control"] + (0.05 * reward)))
+            self._style_weights["safety"] = max(0.7, min(1.7, self._style_weights["safety"] - (0.06 * reward)))
 
             if outcome == 'win':
                 self._style_weights["aggression"] = min(1.6, self._style_weights["aggression"] + 0.02)
             elif outcome == 'loss':
                 self._style_weights["safety"] = min(1.7, self._style_weights["safety"] + 0.03)
 
-            board_size = int(result.get('board_size', 9)) if result.get('board_size') else 9
             self._result_window.append(outcome)
             self._result_window = self._result_window[-10:]
 
@@ -697,10 +727,136 @@ class AIPlayer:
 
             self.shared_memory.set('ai_style_weights', dict(self._style_weights))
             self.shared_memory.set('ai_board_preferences', dict(self._board_preferences))
+
+            # Integrate with learning agent using real reward-derived supervision.
+            if self.learning_agent:
+                task_embedding = self._build_learning_embedding(result)
+                best_strategy = 'planning' if reward >= 0.2 else 'rl' if reward <= -0.2 else 'dqn'
+                self.learning_agent.observe(
+                    task_embedding=task_embedding,
+                    best_agent_strategy_name=best_strategy
+                )
+                self.learning_agent.train_from_embeddings()
+
+            self._save_learning_state()
             return True
         except Exception as e:
             logger.error(f"Error in learn_from_game: {e}", exc_info=True)
             return False
+
+    def _prepare_episode_tracking(self, game_state):
+        game_id = game_state.get('gameId') if isinstance(game_state, dict) else None
+        round_idx = game_state.get('round', 0) if isinstance(game_state, dict) else 0
+        if game_id and game_id != self._current_game_id:
+            self._episode_trace = []
+            self._current_game_id = game_id
+        elif round_idx in (0, 1) and len(self._episode_trace) > 24:
+            self._episode_trace = []
+
+    def _record_episode_step(self, game_state, move):
+        unit_map, _ = self._build_unit_and_board_maps(game_state)
+        acting_unit = unit_map.get(move.get('unitId')) if isinstance(move, dict) else None
+        self._episode_trace.append((self._encode_state(game_state), self._encode_action(move, acting_unit, game_state)))
+
+    def _encode_state(self, game_state):
+        board_size = self._board_size(game_state)
+        round_bucket = int(game_state.get('round', 0) // 2)
+        players = game_state.get('players', []) if isinstance(game_state, dict) else []
+        ai_score = next((p.get('score', 0) for p in players if isinstance(p, dict) and p.get('id') == 1), 0)
+        human_score = next((p.get('score', 0) for p in players if isinstance(p, dict) and p.get('id') == 0), 0)
+        score_bucket = int((ai_score - human_score) // 2)
+        return f"bs{board_size}|r{round_bucket}|sd{score_bucket}"
+
+    def _encode_action(self, move, acting_unit, game_state=None):
+        move_type = move.get('type', 'unknown') if isinstance(move, dict) else 'unknown'
+        unit_type = acting_unit.get('type', 'unknown') if isinstance(acting_unit, dict) else 'unknown'
+        target = (move.get('target') or move.get('params', {}).get('target') or {}) if isinstance(move, dict) else {}
+        board_size = self._board_size(game_state) if isinstance(game_state, dict) else 9
+        zone = 'core' if isinstance(target, dict) and self._is_core_cell(target.get('r'), target.get('c'), board_size) else 'edge'
+        return f"{move_type}:{unit_type}:{zone}"
+
+    def _q_value(self, state_key, action_key):
+        return float(self._rl_q_table.get(state_key, {}).get(action_key, 0.0))
+
+    def _set_q_value(self, state_key, action_key, value):
+        self._rl_q_table.setdefault(state_key, {})[action_key] = float(value)
+
+    def _build_learning_embedding(self, result):
+        outcome = (result.get('outcome') or '').lower()
+        final_score = float(result.get('final_score', 0) or 0)
+        board_size = float(result.get('board_size', 9) or 9)
+        outcome_value = 1.0 if outcome == 'win' else -1.0 if outcome == 'loss' else 0.0
+        embedding = np.zeros(256, dtype=np.float32)
+        embedding[:6] = [
+            final_score / 100.0,
+            float(result.get('reward', 0) or 0),
+            outcome_value,
+            board_size / 16.0,
+            self._style_weights['aggression'],
+            self._style_weights['safety'],
+        ]
+        return embedding
+
+    def _apply_learning_strategy(self, game_state):
+        if not self.learning_agent:
+            return
+        try:
+            state_key = self._encode_state(game_state)
+            hash_value = abs(hash(state_key)) % 1000 / 1000.0
+            embedding = np.zeros(256, dtype=np.float32)
+            embedding[:4] = [hash_value, self._style_weights['aggression'], self._style_weights['core_control'], self._style_weights['safety']]
+            if torch is not None:
+                strategy_input = torch.tensor(embedding, dtype=torch.float32)
+            else:
+                strategy_input = embedding
+            selected = self.learning_agent.select_agent_strategy(strategy_input)
+            if selected == 'planning':
+                self._style_weights['core_control'] = min(1.7, self._style_weights['core_control'] + 0.02)
+            elif selected == 'rl':
+                self._style_weights['aggression'] = min(1.7, self._style_weights['aggression'] + 0.02)
+            elif selected == 'dqn':
+                self._style_weights['safety'] = min(1.8, self._style_weights['safety'] + 0.02)
+        except Exception as strategy_error:
+            logger.warning(f"Learning strategy selection skipped: {strategy_error}")
+
+    def _log_performance(self, result, reward):
+        entry = {
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'outcome': (result.get('outcome') or '').lower(),
+            'final_score': result.get('final_score'),
+            'reward': float(reward),
+            'board_size': result.get('board_size', 9),
+            'round': result.get('round'),
+            'trajectory_length': len(self._episode_trace),
+        }
+        self._performance_log.append(entry)
+        self._performance_log = self._performance_log[-500:]
+        self.shared_memory.set('ai_recent_performance', list(self._performance_log[-30:]))
+
+    def _load_learning_state(self):
+        if not self._learning_store_path.exists():
+            return
+        try:
+            payload = json.loads(self._learning_store_path.read_text())
+            self._style_weights.update(payload.get('style_weights', {}))
+            self._board_preferences = payload.get('board_preferences', {}) or {}
+            self._rl_q_table = payload.get('rl_q_table', {}) or {}
+            self._performance_log = payload.get('performance_log', []) or []
+        except Exception as load_error:
+            logger.warning(f"Failed to load learning state: {load_error}")
+
+    def _save_learning_state(self):
+        try:
+            self._learning_store_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                'style_weights': self._style_weights,
+                'board_preferences': self._board_preferences,
+                'rl_q_table': self._rl_q_table,
+                'performance_log': self._performance_log[-500:],
+            }
+            self._learning_store_path.write_text(json.dumps(payload, indent=2))
+        except Exception as save_error:
+            logger.warning(f"Failed to persist learning state: {save_error}")
 
 # Initialize AI Player instance
 ai_player = None
