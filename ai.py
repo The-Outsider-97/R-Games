@@ -66,6 +66,12 @@ class AIPlayer:
 
     def get_move(self, game_state):
         try:
+            phase = game_state.get('phase')
+            if phase == 'strategos_decision':
+                choice = self._choose_mutual_strategos_choice(game_state)
+                logger.info(f"Strategos decision phase: AI selected '{choice}'.")
+                return {'choice': choice}
+
             valid_moves = game_state.get('validMoves', [])
             if not valid_moves:
                 logger.warning("No valid moves provided in game state.")
@@ -99,12 +105,6 @@ class AIPlayer:
                             "strategy": strategy_context
                         }
                     )
-
-                    phase = game_state.get('phase')
-                    if phase == 'strategos_decision':
-                        # Simple heuristic: continue if AI has more pieces or core points
-                        # For now, always choose 'continue'
-                        return {'choice': 'continue'}
 
                     # Register only once to avoid noisy duplicate-registration warnings.
                     if (
@@ -151,6 +151,39 @@ class AIPlayer:
             # Fallback to random move if everything fails
             import random
             return random.choice(game_state.get('validMoves', [])) if game_state.get('validMoves') else None
+
+    def _choose_mutual_strategos_choice(self, game_state):
+        """Choose continue/end when both Strategos units are eliminated."""
+        ai_player_id = 1
+        human_player_id = 0
+
+        players = game_state.get('players', []) if isinstance(game_state, dict) else []
+        ai_score = 0
+        human_score = 0
+        if isinstance(players, list):
+            for player in players:
+                if not isinstance(player, dict):
+                    continue
+                if player.get('id') == ai_player_id:
+                    ai_score = player.get('score', 0) or 0
+                elif player.get('id') == human_player_id:
+                    human_score = player.get('score', 0) or 0
+
+        ai_units = 0
+        human_units = 0
+        for unit in self._extract_units(game_state):
+            if not isinstance(unit, dict) or (unit.get('hp', 0) or 0) <= 0:
+                continue
+            owner = unit.get('owner')
+            if owner == ai_player_id:
+                ai_units += 1
+            elif owner == human_player_id:
+                human_units += 1
+
+        # Keep playing when we're ahead or equal; end if materially behind.
+        if ai_score < human_score and ai_units < human_units:
+            return 'end'
+        return 'continue'
 
     def _score_move(self, move, game_state, strategy, plan):
         """
@@ -655,7 +688,10 @@ class AIRequestHandler(BaseHTTPRequestHandler):
             move = ai_player.get_move(data)
             if move:
                 self._set_headers()
-                self.wfile.write(json.dumps({"move": move}).encode('utf-8'))
+                if isinstance(move, dict) and 'choice' in move:
+                    self.wfile.write(json.dumps({"choice": move['choice']}).encode('utf-8'))
+                else:
+                    self.wfile.write(json.dumps({"move": move}).encode('utf-8'))
             else:
                 self._set_headers(404)
                 self.wfile.write(json.dumps({"error": "No valid move found"}).encode('utf-8'))
