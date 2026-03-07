@@ -20,11 +20,24 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("r-games.app")
+# Add project root to sys.path
+project_root = Path(__file__).resolve().parent
+sys.path.insert(0, str(project_root))
+
+# Add AI folder to sys.path so 'src' and 'logs' can be imported as top-level packages
+ai_root = project_root / "AI"
+sys.path.insert(0, str(ai_root))
+
+try:
+    from src.agents.agent_factory import AgentFactory
+    from src.agents.collaborative.shared_memory import SharedMemory
+    from src.agents.planning.planning_types import Task, TaskType
+    from logs.logger import get_logger
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+    raise
+
+logger = get_logger("AI_Main")
 
 
 @dataclass(frozen=True)
