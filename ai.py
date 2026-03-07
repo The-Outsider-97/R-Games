@@ -43,7 +43,7 @@ class AIPlayer:
         # Create agents
         try:
             self.knowledge_agent = self.factory.create("knowledge", self.shared_memory)
-            # Load Chronos strategy into knowledge agent
+            # Load R-Games strategy into knowledge agent
             try:
                 self.knowledge_agent.load_from_directory()
                 logger.info("Knowledge Agent loaded documents from templates.")
@@ -97,7 +97,7 @@ class AIPlayer:
             # 1. Knowledge Retrieval: Get strategy context
             strategy_context = ""
             try:
-                # Query for Chronos-specific strategies using the best available API
+                # Query for R-Games-specific strategies using the best available API
                 strategy_context = self._get_strategy_context()
                 logger.info(f"Knowledge Agent retrieved strategy context: {strategy_context[:100]}...")
             except Exception as e:
@@ -623,7 +623,7 @@ class AIPlayer:
 
     def _get_strategy_context(self):
         """Query the knowledge agent via whichever retrieval API is available."""
-        query_text = "Chronos game strategy and piece value"
+        query_text = "R-Games game strategy and piece value"
 
         # Prefer explicit query API if present.
         if hasattr(self.knowledge_agent, 'query'):
