@@ -1,1 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>R-Games Launcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --signal-white: #efefef;
+        --black-brown: #181818;
+        --traffic-red: #cb0605;
+        --sky-blue: #0071a4;
+      }
 
+      body {
+        background-color: #0a0a0a;
+        color: var(--signal-white);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      .neon-text {
+        text-shadow: 0 0 15px rgba(0, 113, 164, 0.4);
+      }
+
+      .glass-panel {
+        background: rgba(24, 24, 24, 0.72);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(239, 239, 239, 0.08);
+      }
+
+      .page-bg-grid {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.12;
+        background-image:
+          linear-gradient(rgba(239, 239, 239, 0.2) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(239, 239, 239, 0.2) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.9), transparent 88%);
+      }
+
+      .card-glow:hover {
+        box-shadow: 0 0 30px rgba(0, 113, 164, 0.28);
+      }
+    </style>
+  </head>
+  <body class="min-h-screen flex items-center justify-center p-6">
+    <div class="page-bg-grid"></div>
+
+    <main class="glass-panel rounded-3xl max-w-5xl w-full p-8 md:p-12">
+      <header class="text-center mb-8 md:mb-12">
+        <p class="text-[11px] tracking-[0.3em] uppercase text-slate-500 mb-2">R-Games Command Uplink</p>
+        <h1 class="text-3xl md:text-5xl font-black tracking-tight neon-text">Choose Your Battlefield</h1>
+        <p class="text-slate-400 mt-3 text-sm md:text-base">Select a game to initialize agents and launch the experience.</p>
+      </header>
+
+      <section id="game-grid" class="grid gap-4 md:gap-6 md:grid-cols-3">
+        <button class="game-card card-glow rounded-2xl border border-white/10 bg-black/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-[var(--sky-blue)]" data-game="chronos" data-launch="/chronos/index.html">
+          <p class="text-[10px] tracking-[0.2em] uppercase text-slate-500">Tactical Strategy</p>
+          <h2 class="text-2xl font-extrabold mt-2 text-[var(--sky-blue)]">Chronos</h2>
+          <p class="text-xs text-slate-400 mt-3">Command temporal units and fight for core control.</p>
+        </button>
+
+        <button class="game-card card-glow rounded-2xl border border-white/10 bg-black/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-[var(--sky-blue)]" data-game="aether_shift" data-launch="/aether/index.html">
+          <p class="text-[10px] tracking-[0.2em] uppercase text-slate-500">Arcane Systems</p>
+          <h2 class="text-2xl font-extrabold mt-2 text-[var(--signal-white)]">Aether Shift</h2>
+          <p class="text-xs text-slate-400 mt-3">Manipulate energy lanes and outmaneuver rival casters.</p>
+        </button>
+
+        <button class="game-card card-glow rounded-2xl border border-white/10 bg-black/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-[var(--traffic-red)]" data-game="mindweave" data-launch="/mindweave/index.html">
+          <p class="text-[10px] tracking-[0.2em] uppercase text-slate-500">Neural Puzzle</p>
+          <h2 class="text-2xl font-extrabold mt-2 text-[var(--traffic-red)]">Mindweave</h2>
+          <p class="text-xs text-slate-400 mt-3">Decode layered cognition patterns to stay ahead.</p>
+        </button>
+      </section>
+
+      <div class="mt-8 border border-white/10 rounded-2xl bg-black/30 p-4 flex items-center justify-between gap-4">
+        <p id="status" class="text-xs md:text-sm text-slate-300">Awaiting game selection...</p>
+        <div id="spinner" class="hidden h-4 w-4 border-2 border-white/20 border-t-[var(--sky-blue)] rounded-full animate-spin"></div>
+      </div>
+    </main>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const spinnerEl = document.getElementById("spinner");
+
+      async function selectGame(game, fallbackLaunch) {
+        statusEl.textContent = `Initializing ${game.replace("_", " ")}...`;
+        spinnerEl.classList.remove("hidden");
+
+        try {
+          const response = await fetch("/api/select-game", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ game })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Request failed with ${response.status}`);
+          }
+
+          const payload = await response.json();
+          statusEl.textContent = payload.message || `${game} initialized.`;
+
+          const launchUrl = payload.launch_url || fallbackLaunch;
+          if (launchUrl) {
+            window.location.href = launchUrl;
+          }
+        } catch (error) {
+          statusEl.textContent = `Unable to launch ${game}: ${error.message}`;
+          console.error("Game selection failed", error);
+        } finally {
+          spinnerEl.classList.add("hidden");
+        }
+      }
+
+      document.querySelectorAll(".game-card").forEach((button) => {
+        button.addEventListener("click", () => {
+          selectGame(button.dataset.game, button.dataset.launch);
+        });
+      });
+    </script>
+  </body>
+</html>
