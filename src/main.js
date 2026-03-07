@@ -30,6 +30,7 @@ const leftCoordsEl = document.getElementById('board-left-coords');
 const rightCoordsEl = document.getElementById('board-right-coords');
 
 const SCOREBOARD_STORAGE_KEY = 'chronos_scoreboard_history_v1';
+const SCOREBOARD_MAX_MATCHES = 200;
 let activeSidePanel = 'comms';
 let sidePanelHidden = false;
 
@@ -61,6 +62,20 @@ function renderBoardCoordinates() {
   rightCoordsEl.innerHTML = Array.from({ length: size }, (_, idx) => `<div class="flex-1 flex items-center justify-center">${size - idx}</div>`).join('');
 }
 
+
+function computeFinalScore({ p1Points, p2Points, turnCount, winnerLabel }) {
+  const pointDiff = p1Points - p2Points;
+  const normalizedPoints = Math.max(-40, Math.min(40, pointDiff * 8));
+  const roundFactor = Math.max(-20, Math.min(20, (12 - (turnCount ?? 12)) * 2));
+  const outcomeBias = winnerLabel === 'Player 1' ? 40 : winnerLabel === 'Player 2' ? -40 : 0;
+  return Math.max(-100, Math.min(100, normalizedPoints + roundFactor + outcomeBias));
+}
+
+function computeAiReward(finalScore) {
+  // AI controls Player 2, so positive reward means Player 2 favorable result.
+  return Math.max(-1, Math.min(1, (-finalScore) / 100));
+}
+
 function setSidebarVisibility(hidden) {
   sidePanelHidden = hidden;
   if (!rightSidebarEl || !sidebarToggleBtn) return;
@@ -89,7 +104,7 @@ function getMatchHistory() {
 function saveMatchRecord(record) {
   const history = getMatchHistory();
   history.unshift(record);
-  localStorage.setItem(SCOREBOARD_STORAGE_KEY, JSON.stringify(history.slice(0, 12)));
+  localStorage.setItem(SCOREBOARD_STORAGE_KEY, JSON.stringify(history.slice(0, SCOREBOARD_MAX_MATCHES)));
 }
 
 function renderScoreboardPanel() {
@@ -109,6 +124,14 @@ function renderScoreboardPanel() {
           : entry.winner === 'Player 2'
             ? 'text-traffic-red'
             : 'text-yellow-400';
+        const displayFinalScore = Number.isFinite(entry.finalScore)
+          ? entry.finalScore
+          : computeFinalScore({
+              p1Points: Number(entry.p1Points) || 0,
+              p2Points: Number(entry.p2Points) || 0,
+              turnCount: Number(entry.turnCount) || 0,
+              winnerLabel: entry.winner || 'Draw'
+            });
         return `
           <div class="rounded-xl border border-white/10 bg-black/30 p-3 flex flex-col gap-2">
             <div class="flex items-center justify-between">
@@ -119,6 +142,7 @@ function renderScoreboardPanel() {
             <div class="text-[11px]"><span class="text-slate-500">Points (P1/P2):</span> <span class="font-mono text-white">${entry.p1Points} / ${entry.p2Points}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Point Diff:</span> <span class="font-mono text-white">${entry.pointDifference}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Rounds:</span> <span class="font-mono text-white">${entry.turnCount ?? '-'}</span></div>
+            <div class="text-[11px]"><span class="text-slate-500">Final Score (P1):</span> <span class="font-mono ${displayFinalScore >= 0 ? 'text-sky-blue' : 'text-traffic-red'}">${displayFinalScore}</span></div>
             <div class="text-[11px]"><span class="text-slate-500">Center Core Captured:</span> <span class="text-white">${entry.centerCoreCaptured ? 'Yes' : 'No'}</span></div>
           </div>
         `;
@@ -189,6 +213,7 @@ function renderGameOver() {
   const centerCoreCaptured = Boolean(centerUnit && centerUnit.health > 0 && centerUnit.playerId === game.winner);
   const winnerLabel = game.winner === 0 ? 'Player 1' : game.winner === 1 ? 'Player 2' : 'Draw';
   const pointDifference = Math.abs(p1Score - p2Score);
+  const finalScore = computeFinalScore({ p1Points: p1Score, p2Points: p2Score, turnCount: game.turnCount, winnerLabel });
   saveMatchRecord({
     winner: winnerLabel,
     p1Points: p1Score,
@@ -196,6 +221,7 @@ function renderGameOver() {
     pointDifference,
     centerCoreCaptured,
     turnCount: game.turnCount,
+    finalScore,
     timestamp: new Date().toLocaleString()
   });
   renderScoreboardPanel();
@@ -267,14 +293,21 @@ async function reportGameResult() {
     
     let outcome = 'draw';
     if (winnerId === aiId) outcome = 'win';
-    else if (winnerId !== null) outcome = 'loss';
+    else if (winnerId !== null && winnerId !== -1) outcome = 'loss';
     
+    const p1Score = game.getCorePoints(0);
+    const p2Score = game.getCorePoints(1);
+    const winnerLabel = winnerId === 0 ? 'Player 1' : winnerId === 1 ? 'Player 2' : 'Draw';
+    const finalScore = computeFinalScore({ p1Points: p1Score, p2Points: p2Score, turnCount: game.turnCount, winnerLabel });
+
     const payload = {
         outcome: outcome,
         score: game.players[aiId].score,
         opponent_score: game.players[0].score,
         rounds: game.round,
-        board_size: CONFIG.board.size
+        board_size: CONFIG.board.size,
+        final_score: finalScore,
+        reward: computeAiReward(finalScore)
     };
     
     try {
