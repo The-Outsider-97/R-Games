@@ -155,8 +155,6 @@ class PlanningAgent(BaseAgent):
             logger.warning(f"Task '{task.name}' already registered. Overwriting.")
 
         self.task_library[task.name] = task
-        if task.name in self.task_library:
-            logger.warning(f"Task '{task.name}' already registered. Overwriting.")
 
         # Initialize probabilistic actions if applicable
         if task.is_probabilistic:
@@ -175,22 +173,21 @@ class PlanningAgent(BaseAgent):
         # Initialize stats for Bayesian method selection if it's an abstract task
         if task.task_type == TaskType.ABSTRACT and not task.methods:
             logger.warning(f"Abstract task {task.name} has no methods. Adding default fallback.")
-
-        fallback = Task(
-            name=f"{task.name}_fallback",
-            task_type=TaskType.PRIMITIVE,
-            preconditions=[lambda state: True],
-            effects=[lambda state: state.update({'fallback_completed': True})],
-            resource_requirements=ResourceProfile(
-                gpu=0.1,
-                ram=0.5,
-                specialized_hardware=[]
-            ),
-            start_time=10,
-            deadline=3600,
-            duration=300
-        )
-        task.methods = [[fallback]]  # Single method with fallback task
+            fallback = Task(
+                name=f"{task.name}_fallback",
+                task_type=TaskType.PRIMITIVE,
+                preconditions=[lambda state: True],
+                effects=[lambda state: state.update({'fallback_completed': True})],
+                resource_requirements=ResourceProfile(
+                    gpu=0.1,
+                    ram=0.5,
+                    specialized_hardware=[]
+                ),
+                start_time=10,
+                deadline=3600,
+                duration=300
+            )
+            task.methods = [[fallback]]  # Single method with fallback task
 
     def _validate_task_safety(self, task: Task) -> bool:
         """Ensure task meets basic safety constraints before registration"""
@@ -454,12 +451,35 @@ class PlanningAgent(BaseAgent):
 
     def _convert_to_schedule_format(self, plan):
         """Map plan tasks to scheduler format"""
+        def _requirements_from_task(task: Task):
+            reqs = []
+            profile = getattr(task, 'resource_requirements', None)
+            if profile:
+                if getattr(profile, 'gpu', 0):
+                    reqs.append('gpu')
+                if getattr(profile, 'ram', 0):
+                    reqs.append('ram')
+                reqs.extend(getattr(profile, 'specialized_hardware', []) or [])
+            return reqs
+
+        def _dependency_ids(task: Task):
+            deps = getattr(task, 'dependencies', []) or []
+            if not isinstance(deps, list):
+                return []
+            dep_ids = []
+            for dep in deps:
+                if isinstance(dep, Task):
+                    dep_ids.append(dep.name)
+                elif isinstance(dep, str):
+                    dep_ids.append(dep)
+            return dep_ids
+
         return [{
             'id': task.name,
-            'requirements': task.requirements,
+            'requirements': _requirements_from_task(task),
             'deadline': task.deadline,
             'risk_score': task.risk_score,
-            'dependencies': [t.name for t in task.dependencies]
+            'dependencies': _dependency_ids(task)
         } for task in plan]
 
     def _convert_to_plan(self, schedule):
@@ -468,7 +488,21 @@ class PlanningAgent(BaseAgent):
 
     def _get_available_agents(self):
         """Get agent capabilities from collaborative agent's registry"""
-        return self.shared_memory.get('agent_registry', {})
+        registry = self.shared_memory.get('agent_registry', default={})
+        if isinstance(registry, dict) and registry:
+            return registry
+
+        # Safe fallback to keep scheduling operational even when no collaborative
+        # registry has been bootstrapped yet.
+        return {
+            'planner': {
+                'capabilities': ['gpu', 'ram'],
+                'current_load': 0.0,
+                'successes': 1,
+                'failures': 0,
+                'efficiency': 1.0,
+            }
+        }
 
     def generate_plan(self, goal_task: Task) -> Optional[List[Task]]:
         self._planning_start_time = time.time()
