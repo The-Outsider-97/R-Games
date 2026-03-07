@@ -512,14 +512,30 @@ class AIPlayer:
                     best_agent_strategy_name="planning" if result.get('outcome') == 'win' else 'rl'
                 )
 
-            # Lightweight online adaptation: tune strategic style per result.
+            # Lightweight online adaptation: tune strategic style with reward shaping.
             outcome = (result.get('outcome') or '').lower()
+            reward = result.get('reward')
+            if reward is None:
+                final_score = result.get('final_score')
+                try:
+                    reward = -float(final_score) / 100.0 if final_score is not None else None
+                except (TypeError, ValueError):
+                    reward = None
+
+            if reward is not None:
+                try:
+                    reward = max(-1.0, min(1.0, float(reward)))
+                except (TypeError, ValueError):
+                    reward = 0.0
+
+                self._style_weights["aggression"] = max(0.7, min(1.6, self._style_weights["aggression"] + (0.08 * reward)))
+                self._style_weights["core_control"] = max(0.7, min(1.6, self._style_weights["core_control"] + (0.05 * reward)))
+                self._style_weights["safety"] = max(0.7, min(1.7, self._style_weights["safety"] - (0.06 * reward)))
+
             if outcome == 'win':
-                self._style_weights["aggression"] = min(1.4, self._style_weights["aggression"] + 0.05)
-                self._style_weights["core_control"] = min(1.5, self._style_weights["core_control"] + 0.04)
+                self._style_weights["aggression"] = min(1.6, self._style_weights["aggression"] + 0.02)
             elif outcome == 'loss':
-                self._style_weights["safety"] = min(1.5, self._style_weights["safety"] + 0.06)
-                self._style_weights["aggression"] = max(0.8, self._style_weights["aggression"] - 0.03)
+                self._style_weights["safety"] = min(1.7, self._style_weights["safety"] + 0.03)
 
             board_size = int(result.get('board_size', 9)) if result.get('board_size') else 9
             self._result_window.append(outcome)
