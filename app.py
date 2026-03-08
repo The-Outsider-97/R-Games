@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
+SESSION_COOKIE = "r_games_session"
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parent
