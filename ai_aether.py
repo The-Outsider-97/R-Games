@@ -91,9 +91,17 @@ class AetherShiftAI:
 
     def _generate_plan(self, game_state: dict[str, Any], strategy_context: str) -> list[dict[str, Any]] | None:
         try:
+            fallback_task = Task(
+                name="select_best_aether_move_fallback",
+                task_type=TaskType.PRIMITIVE,
+                start_time=10,
+                deadline=3600,
+                duration=300,
+            )
             goal_task = Task(
                 name="select_best_aether_move",
                 task_type=TaskType.ABSTRACT,
+                methods=[[fallback_task]],
                 goal_state={"move_selected": True},
                 context={"game_state": game_state, "strategy": strategy_context},
             )
