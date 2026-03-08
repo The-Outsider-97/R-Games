@@ -6,8 +6,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-logger = getLogger("r-games.ai.aether")
+project_root = Path(__file__).resolve().parent
+sys.path.insert(0, str(project_root))
 
+ai_root = project_root / "AI"
+sys.path.insert(0, str(ai_root))
+
+from src.agents.planning.planning_types import Task, TaskType
+from logs.logger import get_logger
+
+logger = getLogger("r-games.ai.aether")
 
 @dataclass
 class AetherShiftAI:
@@ -24,7 +32,6 @@ class AetherShiftAI:
     def learn_from_game(self, payload: dict[str, Any]) -> bool:
         _ = payload
         return True
-
 
 def initialize_ai() -> AetherShiftAI:
     ai = AetherShiftAI()
