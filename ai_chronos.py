@@ -868,6 +868,7 @@ def initialize_ai():
             ai_player = AIPlayer()
         except Exception as e:
             logger.critical(f"Failed to initialize AI Player on startup: {e}")
+    return ai_player
 
 class AIRequestHandler(BaseHTTPRequestHandler):
     def _set_headers(self, status=200):
