@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import random
 import sys
+import time
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +25,6 @@ from src.agents.planning.planning_types import Task, TaskType
 
 logger = get_logger("Aether Shift")
 
-
 @dataclass
 class AetherShiftAI:
     game: str = "aether_shift"
@@ -39,6 +40,8 @@ class AetherShiftAI:
         self.learning_agent = self.factory.create("learning", self.shared_memory)
 
         self._planning_task_registered = False
+        self._planning_enabled = True
+        self.shared_memory.set("aether_ai_status", "initialized")
         logger.info("Aether Shift AI initialized with Knowledge, Planning, Execution, and Learning agents")
 
     def health(self) -> dict[str, Any]:
@@ -53,20 +56,30 @@ class AetherShiftAI:
         if not valid_moves:
             return None
 
+        self.shared_memory.set("aether_last_state", game_state)
         strategy_context = self._get_strategy_context()
         plan = self._generate_plan(game_state, strategy_context)
 
-        best_move: dict[str, Any] | None = None
-        best_score = float("-inf")
-        for move in valid_moves:
-            score = self._score_move(move, game_state, strategy_context, plan)
-            if score > best_score:
-                best_score = score
-                best_move = move
+        best_move, best_score = self._select_move_via_execution(
+            valid_moves=valid_moves,
+            game_state=game_state,
+            strategy_context=strategy_context,
+            plan=plan,
+        )
 
         if best_move is None:
             best_move = random.choice(valid_moves)
 
+        self.shared_memory.set(
+            "aether_last_decision",
+            {
+                "move": best_move,
+                "score": best_score,
+                "plan_steps": len(plan) if isinstance(plan, list) else 0,
+                "used_execution_agent": bool(best_move),
+                "timestamp": time.time(),
+            },
+        )
         return best_move
 
     def learn_from_game(self, payload: dict[str, Any]) -> bool:
@@ -83,24 +96,32 @@ class AetherShiftAI:
         try:
             if hasattr(self.knowledge_agent, "query"):
                 result = self.knowledge_agent.query("Aether Shift strategy for board control and wells")
+                self.shared_memory.set("aether_strategy_context", str(result))
                 return str(result)
             return ""
         except Exception as error:  # noqa: BLE001
             logger.warning("Knowledge agent query failed: %s", error)
             return ""
 
-    def _generate_plan(self, game_state: dict[str, Any], strategy_context: str) -> list[dict[str, Any]] | None:
+    def _generate_plan(self, game_state: dict[str, Any], strategy_context: str) -> list[Task] | None:
+        if not self._planning_enabled:
+            return None
+
         try:
+            now = time.time()
             fallback_task = Task(
                 name="select_best_aether_move_fallback",
                 task_type=TaskType.PRIMITIVE,
-                start_time=10,
-                deadline=3600,
-                duration=300,
+                start_time=now + 10,
+                deadline=now + 300,
+                duration=120,
+                context={"game": self.game},
             )
             goal_task = Task(
                 name="select_best_aether_move",
                 task_type=TaskType.ABSTRACT,
+                start_time=now + 5,
+                deadline=now + 600,
                 methods=[[fallback_task]],
                 goal_state={"move_selected": True},
                 context={"game_state": game_state, "strategy": strategy_context},
@@ -113,17 +134,51 @@ class AetherShiftAI:
             if hasattr(self.planning_agent, "generate_plan"):
                 plan = self.planning_agent.generate_plan(goal_task)
                 if isinstance(plan, list):
+                    self.shared_memory.set("aether_last_plan", [task.name for task in plan])
                     return plan
         except Exception as error:  # noqa: BLE001
             logger.warning("Planning agent failed: %s", error)
+            self._planning_enabled = False
         return None
+
+    def _select_move_via_execution(
+        self,
+        valid_moves: list[dict[str, Any]],
+        game_state: dict[str, Any],
+        strategy_context: str,
+        plan: list[Task] | None,
+    ) -> tuple[dict[str, Any] | None, float]:
+        execution_signal = {}
+        try:
+            if hasattr(self.execution_agent, "predict"):
+                execution_signal = self.execution_agent.predict({
+                    "game": self.game,
+                    "strategy": strategy_context,
+                    "plan_size": len(plan) if plan else 0,
+                })
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Execution agent prediction failed: %s", error)
+
+        bonus = 0.0
+        if isinstance(execution_signal, dict) and execution_signal.get("selected_action") != "idle":
+            bonus = float(execution_signal.get("confidence", 0.0)) * 3.0
+
+        best_move: dict[str, Any] | None = None
+        best_score = float("-inf")
+        for move in valid_moves:
+            score = self._score_move(move, game_state, strategy_context, plan) + bonus
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        return best_move, best_score
 
     def _score_move(
         self,
         move: dict[str, Any],
         game_state: dict[str, Any],
         strategy_context: str,
-        plan: list[dict[str, Any]] | None,
+        plan: list[Task] | None,
     ) -> float:
         score = 0.0
 
