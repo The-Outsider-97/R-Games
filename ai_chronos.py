@@ -113,9 +113,17 @@ class AIPlayer:
                         self.shared_memory.set('agent_registry', {})
 
                     # Create a formal Task for the planning agent
+                    fallback_task = Task(
+                        name="select_best_move_fallback",
+                        task_type=TaskType.PRIMITIVE,
+                        start_time=10,
+                        deadline=3600,
+                        duration=300,
+                    )
                     goal_task = Task(
                         name="select_best_move",
                         task_type=TaskType.ABSTRACT,
+                        methods=[[fallback_task]],
                         goal_state={"move_selected": True},
                         context={
                             "game_state": game_state,
