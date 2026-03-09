@@ -253,8 +253,18 @@ const queueAiTurn = () => {
       render();
       if (gameState.winner) {
         await notifyLearnEndpoint();
+        return;
       }
+
+      if (gameState.mode === 'PVAI' && gameState.activePlayer === 2 && gameState.actionsRemaining > 0) {
+        queueAiTurn();
+      }
+      return;
     }
+
+    postSystemMessage('AI action failed. Ending AI turn.');
+    gameState = { ...gameState, activePlayer: 1, actionsRemaining: 2, selectedCardId: null, selectedActionIndex: null };
+    render();
   }, 700);
 };
 
