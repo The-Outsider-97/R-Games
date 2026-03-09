@@ -1,6 +1,7 @@
 import { BOARD_SIZE, POWER_WELLS, TILE_CONNECTIONS } from './constants.js';
 import { createInitialState, executeAction, getRotatedConnections } from './utils/gameLogic.js';
 import { requestAetherMove } from './service/aetherAiClient.js';
+import { computeMatchRecord } from './utils/scoring.js';
 
 const guideBtn = document.getElementById('guide-toggle');
 const guide = document.getElementById('quick-guide');
@@ -25,6 +26,13 @@ const scoreMode = document.getElementById('score-mode');
 const scoreTurn = document.getElementById('score-turn');
 const scoreWells = document.getElementById('score-wells');
 const scoreWinner = document.getElementById('score-winner');
+const scoreScore = document.getElementById('score-score');
+const scorePoints = document.getElementById('score-points');
+const endgameOverlay = document.getElementById('endgame-overlay');
+const endgameHeadline = document.getElementById('endgame-headline');
+const endgameSubtitle = document.getElementById('endgame-subtitle');
+const endgameWinner = document.getElementById('endgame-winner');
+const restartBtn = document.getElementById('restart-btn');
 
 let gameState = createInitialState({ mode: 'PVAI', aiStarts: true });
 let activityLog = ['System ready.'];
@@ -61,10 +69,14 @@ const renderLog = () => {
 const renderScore = () => {
   const redWells = Object.values(gameState.capturedWells).filter((owner) => owner === 1).length;
   const blueWells = Object.values(gameState.capturedWells).filter((owner) => owner === 2).length;
+  const matchRecord = computeMatchRecord(gameState);
+
   scoreMode.textContent = `Mode: ${gameState.mode === 'PVAI' ? 'Player v. AI' : 'Player v. Player'}`;
   scoreTurn.textContent = `Turn: ${gameState.turn}`;
   scoreWells.textContent = `Wells — Red: ${redWells} / Blue: ${blueWells}`;
   scoreWinner.textContent = `Winner: ${gameState.winner ? gameState.players[gameState.winner].name : 'In Progress'}`;
+  scoreScore.textContent = `Score: ${matchRecord.score}`;
+  scorePoints.textContent = `Points: ${matchRecord.points}`;
 };
 
 const renderPlayerPanels = () => {
@@ -191,6 +203,23 @@ const renderHeader = () => {
   modeSelect.value = gameState.mode;
 };
 
+
+const renderEndgameOverlay = () => {
+  if (!gameState.winner) {
+    endgameOverlay.classList.add('hidden');
+    return;
+  }
+
+  const playerWon = gameState.winner === 1 || gameState.mode === 'PVP';
+  endgameHeadline.textContent = playerWon ? 'VICTORY' : 'DEFEAT';
+  endgameHeadline.className = gameState.winner === 1 ? 'winner-red' : 'winner-blue';
+  endgameSubtitle.textContent = gameState.winReason === 'Path Completed!'
+    ? 'Edge link established.'
+    : 'Well dominance achieved.';
+  endgameWinner.textContent = `${gameState.players[gameState.winner].name} wins the match.`;
+  endgameOverlay.classList.remove('hidden');
+};
+
 const render = () => {
   renderHeader();
   renderPlayerPanels();
@@ -198,6 +227,7 @@ const render = () => {
   renderBoard();
   renderLog();
   renderScore();
+  renderEndgameOverlay();
 };
 
 const handleTileClick = async (row, col, action) => {
@@ -320,3 +350,11 @@ tabs.forEach((tabButton) => {
 
 render();
 if (gameState.mode === 'PVAI' && gameState.activePlayer === 2) queueAiTurn();
+
+restartBtn.addEventListener('click', () => {
+  gameState = createInitialState({ mode: gameState.mode, aiStarts: gameState.mode === 'PVAI' });
+  aiTurnToken += 1;
+  activityLog = ['New game initialized.'];
+  render();
+  if (gameState.mode === 'PVAI' && gameState.activePlayer === 2) queueAiTurn();
+});
