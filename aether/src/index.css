@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&display=swap');
+
 :root {
   --bg: #08090c;
   --panel: #12141a;
@@ -20,18 +22,18 @@ body {
 .aether-shell { max-width: 1260px; margin: 0 auto; padding: 24px 270px 24px 28px; }
 .top-bar { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--line); padding-bottom: 14px; position: relative; }
 .title-row { display: flex; align-items: center; gap: 10px; }
-h1 { margin: 0; font-size: 46px; line-height: 1; letter-spacing: .02em; }
-.subtitle { margin: 6px 0 0; letter-spacing: .25em; color: var(--muted); font-size: 18px; }
+.title-row h1 { margin: 0; font-size: 45px; line-height: 0.96; letter-spacing: .01em; font-weight: 800; font-family: 'Montserrat', Inter, system-ui, sans-serif; }
+.subtitle { margin: 8px 0 0; letter-spacing: .18em; color: #71798a; font-size: 13px; font-weight: 500; font-family: 'Montserrat', Inter, system-ui, sans-serif; }
 .guide-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: #171c28; color: #bcc5d4; cursor: pointer; }
 .quick-guide { position: absolute; left: 0; top: 88px; width: min(560px, 90vw); background: #0f131c; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; z-index: 40; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
 .quick-guide h3 { margin: 0 0 8px; color: #fff; }
 .quick-guide ul { margin: 0 0 8px 18px; padding: 0; color: #c8d0dc; }
 .hidden { display: none !important; }
 .status-right { text-align: right; }
-.status-right h2 { margin: 0; }
+.status-right h2 { margin: 0; font-size: 40px; line-height: 1; }
 .status-right h2.red-turn { color: var(--red); }
 .status-right h2.blue-turn { color: var(--blue); }
-.status-right p { margin: 2px 0 10px; color: #bec4cf; font-size: 12px; letter-spacing: .15em; }
+.status-right p { margin: 4px 0 10px; color: #bec4cf; font-size: 12px; letter-spacing: .15em; }
 .mode-wrap { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 12px; }
 select { background: transparent; color: var(--text); border: none; outline: none; font-size: 12px; }
 select option { color: #111; }
