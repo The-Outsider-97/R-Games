@@ -7,11 +7,103 @@
     <title>Aether Shift</title>
     <link rel="icon" type="image/x-icon" href="../img/Logo01.svg" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="./src/index.css" />
   </head>
 
-  <body class="bg-neutral-900">
-    <a href="/" class="fixed top-4 left-4 z-50 text-[10px] px-3 py-2 rounded-lg border border-white/20 bg-black/50 text-slate-200 hover:text-white hover:border-indigo-400 transition-colors uppercase tracking-widest">Home</a>
-    <div id="root"></div>
-    <script type="module" src="./src/main.js"></script>
+  <body>
+    <a href="/" class="home-btn">Home</a>
+
+    <main class="aether-shell">
+      <header class="top-bar">
+        <div>
+          <div class="title-row">
+            <h1>AETHER SHIFT</h1>
+            <button id="guide-toggle" class="guide-btn" aria-expanded="false" aria-controls="quick-guide">i</button>
+          </div>
+          <p class="subtitle">TACTICAL SPATIAL WARFARE</p>
+          <div id="quick-guide" class="quick-guide hidden" role="dialog" aria-label="Quick Guide">
+            <h3>Quick Guide</h3>
+            <ul>
+              <li>Goal: Connect your edge (Red: Top, Blue: Bottom) to the opposite side OR capture 3 Power Wells.</li>
+              <li>Turn: Pick 2 actions from the cards below.</li>
+            </ul>
+            <p><strong>Actions</strong></p>
+            <ul>
+              <li>Shift: Click edge tiles to slide rows/cols.</li>
+              <li>Attune: Lock a tile &amp; capture Wells.</li>
+              <li>Place: a tile</li>
+              <li>Rotate: Rotate a tile</li>
+              <li>Advance: Move character to the adjacent connected tile</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="status-right">
+          <h2 id="turn-label">Red Architect's Turn</h2>
+          <p id="actions-label">ACTIONS: 2</p>
+          <div class="mode-wrap">
+            <label for="mode-select">MODE:</label>
+            <select id="mode-select">
+              <option value="PVAI">VS AI (AI STARTS)</option>
+              <option value="PVP">PLAYER VS PLAYER</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <section class="board-row">
+        <aside id="player-1" class="player-card red active">
+          <h3>Red Architect</h3>
+          <p><span>Resonators</span><strong id="p1-resonators"></strong></p>
+          <p><span>Power Wells</span><strong id="p1-wells"></strong></p>
+          <hr />
+          <p class="objective"><b>Objective:</b> Connect TOP edge to BOTTOM edge OR capture 3 Wells.</p>
+        </aside>
+
+        <div class="board-wrap">
+          <div class="lane red"></div>
+          <div id="board" class="board"></div>
+          <div class="lane blue"></div>
+        </div>
+
+        <aside id="player-2" class="player-card blue">
+          <h3>Blue Architect</h3>
+          <p><span>Resonators</span><strong id="p2-resonators"></strong></p>
+          <p><span>Power Wells</span><strong id="p2-wells"></strong></p>
+          <hr />
+          <p class="objective"><b>Objective:</b> Connect BOTTOM edge to TOP edge OR capture 3 Wells.</p>
+        </aside>
+      </section>
+
+      <section class="action-deck">
+        <h4>ACTION DECK</h4>
+        <div id="action-cards" class="cards"></div>
+      </section>
+    </main>
+
+    <aside id="right-sidebar" class="right-sidebar">
+      <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">❮</button>
+      <div class="sidebar-inner">
+        <div class="tabs">
+          <button data-tab="comms" class="tab active">COMMS</button>
+          <button data-tab="score" class="tab">SCOREBOARD</button>
+        </div>
+        <div id="comms-panel" class="panel">
+          <h5>SYSTEM LOG</h5>
+          <div id="log-box" class="log-box"></div>
+        </div>
+        <div id="score-panel" class="panel hidden">
+          <h5>MATCH STATUS</h5>
+          <div class="log-box">
+            <p id="score-mode">Mode: -</p>
+            <p id="score-turn">Turn: -</p>
+            <p id="score-wells">Wells — Red: 0 / Blue: 0</p>
+            <p id="score-winner">Winner: In Progress</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <script src="./src/script.js"></script>
   </body>
 </html>
