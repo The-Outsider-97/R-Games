@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import sys
 import time
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -218,7 +217,6 @@ class AetherShiftAI:
             score += min(len(plan), 4)
 
         return score
-
 
 def initialize_ai() -> AetherShiftAI:
     ai = AetherShiftAI()
