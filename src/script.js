@@ -8,7 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const apiKeyInput = document.getElementById("api-key-input");
   const btnCancelApi = document.getElementById("btn-cancel-api");
   const btnSaveApi = document.getElementById("btn-save-api");
-
+  const btnResetMindweaveApi = document.getElementById("btn-reset-mindweave-api");
+  
   // State variables for pending game launch when modal is triggered
   let pendingGame = "";
   let pendingFallbackLaunch = "";
@@ -103,6 +104,18 @@ document.addEventListener("DOMContentLoaded", () => {
       // 3. Launch immediately if no API is required, or if the key already exists
       selectGame(gameId, launchUrl);
     });
+  });
+
+  // Manual reset/update entrypoint for the Mindweave BYOK token
+  btnResetMindweaveApi.addEventListener("click", () => {
+    pendingGame = "";
+    pendingFallbackLaunch = "";
+
+    apiModal.classList.remove("hidden");
+    apiKeyInput.value = localStorage.getItem("mindweave_llm_api_key") || "";
+    apiKeyInput.focus();
+
+    statusEl.textContent = "Update your Mindweave API key and save to continue.";
   });
 
   // Modal Cancel Button
