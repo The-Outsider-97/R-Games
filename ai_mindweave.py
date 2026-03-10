@@ -1,5 +1,8 @@
 """Mindweave AI initialization module."""
 
+# Goal:
+# Select a practical subset of SLAI agents for Project: MindWeave and map them to game systems that are designed for far-transfer outcomes (IQ, executive function, EQ, and metacognition).
+#
 # ai_mindaweave.py integrates Collaborative (1), Knowledge (2), Planning (3), Evaluation (4), Language (5), Reasoning (6), and Safety(7) agents
 # 1. Register specialist agents in the Collaboration Manager / task router.
 #    Route by task_type (cognitive_puzzle, npc_dialogue, stress_event, debrief_reflection, safety_audit).
