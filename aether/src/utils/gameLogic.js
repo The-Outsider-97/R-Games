@@ -1,5 +1,18 @@
 import { BOARD_SIZE, POWER_WELLS, TILE_CONNECTIONS, generateDeck } from '../constants.js';
 
+const isPowerWell = (row, col) => POWER_WELLS.some((well) => well.row === row && well.col === col);
+
+const refreshCapturedWells = (state) => {
+  const captured = {};
+  for (const well of POWER_WELLS) {
+    const tile = state.board?.[well.row]?.[well.col];
+    if (tile?.hasResonator && tile.resonatorOwner) {
+      captured[`${well.row},${well.col}`] = tile.resonatorOwner;
+    }
+  }
+  state.capturedWells = captured;
+};
+
 export const createInitialState = ({ mode = 'PVAI', aiStarts = false } = {}) => {
   const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
 
@@ -173,14 +186,17 @@ export const executeAction = (gameState, action, target) => {
             if (player.position?.row === target.row && player.position?.col === target.col) {
                 if (!tileToAttune.hasResonator) {
                     if (player.resonators > 0) {
+                        const isWell = isPowerWell(target.row, target.col);
+                        if (isWell && tileToAttune.color === 'neutral') {
+                            message = 'Cannot attune an existing grey tile to capture a Power Well.';
+                            break;
+                        }
+
                         tileToAttune.hasResonator = true;
                         tileToAttune.resonatorOwner = activePlayer;
                         player.resonators--;
-                        
-                        // Check Power Well Capture
-                        const isWell = POWER_WELLS.some(w => w.row === target.row && w.col === target.col);
+
                         if (isWell) {
-                            newState.capturedWells[`${target.row},${target.col}`] = activePlayer;
                             message = 'Resonator placed. Power Well captured!';
                         } else {
                             message = 'Resonator placed.';
@@ -263,18 +279,27 @@ export const executeAction = (gameState, action, target) => {
     if (success) {
         // Decrement actions
         newState.actionsRemaining--;
+        refreshCapturedWells(newState);
         
-        // Check Victory
+        // Check immediate victory condition
         if (checkPathVictory(newState, newState.activePlayer)) {
             newState.winner = newState.activePlayer;
             newState.winReason = 'Path Completed!';
-        } else if (checkPowerWellVictory(newState, newState.activePlayer)) {
-            newState.winner = newState.activePlayer;
-            newState.winReason = '3 Power Wells Captured!';
         }
 
         // If turn over
         if (!newState.winner && newState.actionsRemaining <= 0) {
+            if (checkPowerWellVictory(newState, newState.activePlayer)) {
+                newState.winner = newState.activePlayer;
+                newState.winReason = '3 Power Wells Captured!';
+            }
+
+            if (newState.winner) {
+                newState.selectedCardId = null;
+                newState.selectedActionIndex = null;
+                return { newState, success: true, message };
+            }
+
             // Switch player
             newState.activePlayer = newState.activePlayer === 1 ? 2 : 1;
             newState.actionsRemaining = 2;
@@ -418,13 +443,15 @@ export const getPathProgress = (gameState, playerId) => {
 };
 
 export const checkPowerWellVictory = (gameState, playerId) => {
-  if (!gameState.capturedWells) return false;
-  let count = 0;
+  if (!gameState?.powerWells || !gameState?.board) return false;
+
+  let lockedWellCount = 0;
   for (const well of gameState.powerWells) {
-    const key = `${well.row},${well.col}`;
-    if (gameState.capturedWells[key] === playerId) {
-      count++;
+    const tile = gameState.board[well.row]?.[well.col];
+    if (tile?.hasResonator && tile.resonatorOwner === playerId) {
+      lockedWellCount++;
     }
   }
-  return count >= 3;
+
+  return lockedWellCount >= 3;
 };
