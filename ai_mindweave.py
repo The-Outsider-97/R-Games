@@ -43,13 +43,14 @@ from __future__ import annotations
 import sys, os
 import json
 import math
+import threading
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parent
@@ -61,7 +62,7 @@ sys.path.insert(0, str(ai_root))
 
 try:
     from src.agents.agent_factory import AgentFactory
-    # from src.agents.collaborative_agent import CollaborativeAgent # I don't know how to properly integrate this agent without causing double initialization
+    from src.agents.collaborative_agent import CollaborativeAgent
     from src.agents.collaborative.shared_memory import SharedMemory
     from src.agents.planning.planning_types import Task, TaskType
     from logs.logger import get_logger
@@ -71,6 +72,24 @@ except ImportError as e:
 
 logger = get_logger("Project: Mindweave")
 
+class AgentAdapter:
+    """Normalizes heterogeneous agent APIs to a single execute(task_data) contract."""
+
+    def __init__(self, name: str, agent: Any, handlers: list[Callable[[dict[str, Any]], Any]]):
+        self.name = name
+        self.agent = agent
+        self.handlers = handlers
+
+    def execute(self, task_data: dict[str, Any]) -> dict[str, Any]:
+        for handler in self.handlers:
+            try:
+                output = handler(task_data)
+                return {"agent": self.name, "result": output}
+            except Exception as exc:
+                logger.debug("%s handler failed: %s", self.name, exc)
+
+        raise RuntimeError(f"No compatible execution path found for {self.name}")
+
 @dataclass
 class MindweaveAI:
     game: str = "mindweave"
@@ -79,32 +98,164 @@ class MindweaveAI:
     def __post_init__(self) -> None:
         self.shared_memory = SharedMemory()
         self.factory = AgentFactory()
-        # self.collab = CollaborativeAgent()
+        self.collab = CollaborativeAgent(shared_memory=self.shared_memory, agent_factory=self.factory)
 
         self.knowledge_agent = self.factory.create("knowledge", self.shared_memory)
         self.planning_agent = self.factory.create("planning", self.shared_memory)
         self.evaluation_agent = self.factory.create("evaluation", self.shared_memory)
         self.language_agent = self.factory.create("language", self.shared_memory)
         self.safety_agent = self.factory.create("safety", self.shared_memory)
+        self.reasoning_agent = self.factory.create("reasoning", self.shared_memory)
 
+        self._register_task_routes()
         self._planning_task_registered = False
         self._planning_enabled = True
         self.match_log_path = project_root / 'AI' / 'logs' / 'mindweave.jsonl'
         self.shared_memory.set("mindweave_ai_status", "initialized")
         logger.info("Project: Mindweave AI initialized with Knowledge, Planning, Evaluation, Language, and Safety agents")
 
+    def _register_task_routes(self) -> None:
+        manager = self.collab.collaboration_manager
+        if manager is None:
+            logger.warning("Collaboration manager unavailable. Falling back to local handlers.")
+            return
+
+        routes = {
+            "cognitive_puzzle": (self.reasoning_agent, [self._execute_reasoning, self._execute_planning]),
+            "npc_dialogue": (self.language_agent, [self._execute_language]),
+            "stress_event": (self.safety_agent, [self._execute_safety]),
+            "debrief_reflection": (self.evaluation_agent, [self._execute_evaluation, self._execute_language]),
+            "safety_audit": (self.safety_agent, [self._execute_safety]),
+        }
+
+        for task_type, (agent, handlers) in routes.items():
+            adapter_name = f"mindweave_{task_type}"
+            adapter = AgentAdapter(name=adapter_name, agent=agent, handlers=handlers)
+            manager.register_agent(adapter_name, adapter, capabilities=[task_type])
+
+        logger.info("Mindweave collaboration routes registered for %d task types", len(routes))
+
+    def _build_event_envelope(self, payload: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.utcnow().isoformat()
+        return {
+            "session_id": payload.get("session_id", "local-session"),
+            "player_id": payload.get("player_id", "player-unknown"),
+            "task_type": payload.get("task_type", "cognitive_puzzle"),
+            "game_state_snapshot": payload.get("game_state_snapshot", payload.get("game_state", {})),
+            "telemetry": payload.get("telemetry", {}),
+            "safety_context": payload.get("safety_context", {}),
+            "requested_action": payload.get("requested_action", "analyze"),
+            "timestamp": now,
+        }
+
+    def _route_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        task_type = event["task_type"]
+        manager = self.collab.collaboration_manager
+        if manager is None:
+            return {"status": "fallback", "task_type": task_type}
+
+        try:
+            result = manager.run_task(task_type, event, retries=1)
+            return {"status": "routed", "task_type": task_type, "result": result}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Route failed for task_type=%s: %s", task_type, exc)
+            return {"status": "route_error", "task_type": task_type, "error": str(exc)}
+
+    def _execute_knowledge(self, event: dict[str, Any]) -> Any:
+        context = event.get("requested_action", "mindweave")
+        query_fn = getattr(self.knowledge_agent, "query", None)
+        if callable(query_fn):
+            return query_fn(context)
+        return {"note": "knowledge agent query unavailable"}
+
+    def _execute_planning(self, event: dict[str, Any]) -> Any:
+        if not self._planning_enabled:
+            return {"note": "planning disabled"}
+
+        fallback_task = Task(
+            name="mindweave_route_fallback",
+            task_type=TaskType.PRIMITIVE,
+            start_time=10,
+            deadline=120,
+            duration=10,
+        )
+        goal_task = Task(
+            name=f"mindweave_{event.get('task_type', 'task')}",
+            task_type=TaskType.ABSTRACT,
+            methods=[[fallback_task]],
+            goal_state={"resolved": True},
+            context=event,
+        )
+
+        if not self._planning_task_registered and hasattr(self.planning_agent, "register_task"):
+            self.planning_agent.register_task(goal_task)
+            self._planning_task_registered = True
+
+        plan = self.planning_agent.generate_plan(goal_task)
+        if not isinstance(plan, list):
+            self._planning_enabled = False
+            return {"note": "planning unavailable", "plan": None}
+        return {"plan_steps": len(plan), "plan": plan}
+
+    def _execute_evaluation(self, event: dict[str, Any]) -> Any:
+        evaluate_fn = getattr(self.evaluation_agent, "evaluate", None)
+        if callable(evaluate_fn):
+            return evaluate_fn(event)
+        return {"note": "evaluation method unavailable"}
+
+    def _execute_language(self, event: dict[str, Any]) -> Any:
+        execute_fn = getattr(self.language_agent, "execute", None)
+        if callable(execute_fn):
+            return execute_fn(event)
+        return {"note": "language execute unavailable"}
+
+    def _execute_reasoning(self, event: dict[str, Any]) -> Any:
+        reason_fn = getattr(self.reasoning_agent, "infer", None)
+        if callable(reason_fn):
+            return reason_fn(event)
+        execute_fn = getattr(self.reasoning_agent, "execute", None)
+        if callable(execute_fn):
+            return execute_fn(event)
+        return {"note": "reasoning method unavailable"}
+
+    def _execute_safety(self, event: dict[str, Any]) -> Any:
+        risk_score = float(event.get("safety_context", {}).get("risk_score", 0.0) or 0.0)
+        assessment = self.collab.assess_risk(risk_score=risk_score, task_type=event.get("task_type", "general"))
+        return assessment.to_dict()
+
     def health(self) -> dict[str, Any]:
         return {"agent_status": "ready", "initialized_at": self.initialized_at}
 
     def get_move(self, game_state: dict[str, Any]) -> dict[str, Any] | None:
+        event = self._build_event_envelope(
+            {
+                "task_type": "cognitive_puzzle",
+                "game_state_snapshot": game_state,
+                "requested_action": "suggest_move",
+            }
+        )
+        route_result = self._route_event(event)
+        self.shared_memory.set("mindweave:last_route", route_result)
+
         valid_moves = game_state.get("validMoves", []) if isinstance(game_state, dict) else []
         return valid_moves[0] if valid_moves else None
 
     def learn_from_game(self, payload: dict[str, Any]) -> bool:
-        _ = payload
+        event = self._build_event_envelope(payload if isinstance(payload, dict) else {})
+        route_result = self._route_event(event)
+        self.shared_memory.set("mindweave:last_learning_event", route_result)
         return True
 
+_AI_INSTANCE: MindweaveAI | None = None
+_AI_LOCK = threading.Lock()
+
+
 def initialize_ai() -> MindweaveAI:
-    ai = MindweaveAI()
-    logger.info("Mindweave AI initialized at %s", ai.initialized_at)
-    return ai
+    global _AI_INSTANCE
+    with _AI_LOCK:
+        if _AI_INSTANCE is None:
+            _AI_INSTANCE = MindweaveAI()
+            logger.info("Mindweave AI initialized at %s", _AI_INSTANCE.initialized_at)
+        else:
+            logger.info("Mindweave AI already initialized at %s", _AI_INSTANCE.initialized_at)
+    return _AI_INSTANCE
