@@ -217,6 +217,16 @@ class GameRuntime:
 
         return {"status": "error", "message": "Learning update failed"}
 
+    def ai_chat(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        _, instance = self._get_selected_instance(session_id)
+        chat_fn = getattr(instance, "chat", None)
+        if not callable(chat_fn):
+            raise NotImplementedError("Selected game AI does not implement chat")
+
+        result = chat_fn(payload)
+        if not isinstance(result, dict):
+            raise TypeError("Chat response must be a JSON object")
+        return result
 
 runtime = GameRuntime()
 
@@ -290,7 +300,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         self._ensure_session()
 
         if self.path == "/api/games":
@@ -315,7 +325,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
 
         super().do_GET()
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         self._ensure_session()
 
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -349,7 +359,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
             except RuntimeError as error:
                 self._send_json({"error": str(error)}, HTTPStatus.SERVICE_UNAVAILABLE)
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:
                 logger.exception("Failed during game selection")
                 self._send_json(
                     {"error": f"Unable to initialize game: {error}"},
@@ -365,7 +375,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
             except NotImplementedError as error:
                 self._send_json({"error": str(error)}, HTTPStatus.NOT_IMPLEMENTED)
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:
                 logger.exception("AI move endpoint failed")
                 self._send_json({"error": f"Move request failed: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -377,9 +387,23 @@ class RequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(result, status)
             except LookupError as error:
                 self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:
                 logger.exception("AI learn endpoint failed")
                 self._send_json({"error": f"Learn request failed: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        if self.path == "/api/ai/chat":
+            try:
+                result = runtime.ai_chat(self.session_id, payload)
+                status = HTTPStatus.OK if "error" not in result else HTTPStatus.BAD_REQUEST
+                self._send_json(result, status)
+            except LookupError as error:
+                self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            except NotImplementedError as error:
+                self._send_json({"error": str(error)}, HTTPStatus.NOT_IMPLEMENTED)
+            except Exception as error:
+                logger.exception("AI chat endpoint failed")
+                self._send_json({"error": f"Chat request failed: {error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
