@@ -2,7 +2,7 @@
 enable_historical: true
 store_results: true
 avg_token_baseline: 50
-template_path: 'src/agents/evaluators/templates/certification_templates.json'
+template_path: 'AI/src/agents/evaluators/templates/certification_templates.json'
 
 initial_hazard_rates:
   system_failure: 0.000001
@@ -29,7 +29,7 @@ evaluators_memory:
   priority_levels: 3              # Low, Medium, High
   access_count: 0
   checkpoint_freq: 500
-  checkpoint_dir: 'src/agents/evaluators/checkpoints'
+  checkpoint_dir: 'AI/src/agents/evaluators/checkpoints'
 
 issue_database:
   host: ${DB_HOST:localhost}
@@ -103,7 +103,7 @@ documentation:
     formats: ["json", "yaml"]
     default_format: "json"
   validation:
-    schema_path: "src/agents/evaluators/templates/audit_schema.json"
+    schema_path: "AI/src/agents/evaluators/templates/audit_schema.json"
   versioning:
     max_versions: 7
 
@@ -138,9 +138,9 @@ performance_visualizer:
     label_precision: 1
 
 efficiency_evaluator:
-  energy_model: "src/agents/evaluators/models/energy_predictor.onnx"
-  report_template: "src/agents/evaluators/templates/efficiency_report.json"
-  recommendation_template_path: "src/agents/evaluators/templates/recommendation_template.json"
+  energy_model: "AI/src/agents/evaluators/models/energy_predictor.onnx"
+  report_template: "AI/src/agents/evaluators/templates/efficiency_report.json"
+  recommendation_template_path: "AI/src/agents/evaluators/templates/recommendation_template.json"
   complexity_metrics: True
   current_flops: 1.2e6
   efficiency_weights:
@@ -153,8 +153,8 @@ efficiency_evaluator:
     semantic_density: 0.1
     structural_variety: 0.05
   nlp_components:
-    tokenizer_config: "src/agents/perception/configs/perception_config.yaml"
-    nlp_engine_config: "src/agents/language/configs/language_config.yaml"
+    tokenizer_config: "AI/src/agents/perception/configs/perception_config.yaml"
+    nlp_engine_config: "AI/src/agents/language/configs/language_config.yaml"
   baselines:
     flops: 1.2e6
     energy_usage: 150  # watts
@@ -303,3 +303,4 @@ static_analysis:
     complexity:
       cyclomatic: 15
       cognitive: 20
+
