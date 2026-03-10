@@ -18,6 +18,10 @@
         <p class="text-slate-400 mt-3 text-sm md:text-base">Select a game to initialize agents and launch the experience.</p>
       </header>
 
+      <section>
+        <div></div> <!--- If the game is taking more than 5 seconss to finish initializing a random quote appears and it changes every 10 seconds --->
+      </section>
+
       <section id="game-grid" class="grid gap-4 md:gap-6 md:grid-cols-3">
         <button class="game-card card-glow rounded-2xl border border-white/10 bg-black/40 p-6 text-left transition-all hover:-translate-y-1 hover:border-[var(--sky-blue)]" data-game="chronos" data-launch="/chronos/index.html">
           <p class="text-[10px] tracking-[0.2em] uppercase text-slate-500">Tactical Strategy</p>
@@ -44,7 +48,12 @@
 
       <div class="mt-8 border border-white/10 rounded-2xl bg-black/30 p-4 flex items-center justify-between gap-4">
         <p id="status" class="text-xs md:text-sm text-slate-300">Awaiting game selection...</p>
-        <div id="spinner" class="hidden h-4 w-4 border-2 border-white/20 border-t-[var(--sky-blue)] rounded-full animate-spin"></div>
+        <div class="flex items-center gap-3">
+          <button id="btn-reset-mindweave-api" class="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors text-xs font-medium">
+            Update Mindweave API Key
+          </button>
+          <div id="spinner" class="hidden h-4 w-4 border-2 border-white/20 border-t-[var(--sky-blue)] rounded-full animate-spin"></div>
+        </div>
       </div>
 
       <br /> <hr class="border-white/10" /> <br />
