@@ -78,42 +78,44 @@ class SharedMemory:
         return cls._instance
     
     def __init__(self):
-        # Using deque allows efficient append and limiting version count if max_versions is set
-        # Force conversion to integer or None
+        # If already fully initialized, return early
         if getattr(self, '_SharedMemory__initialized', False):
             return
-        if self.__initialized:
-            return
-        self.__initialized = True
-        self.config = load_global_config()
-        self.memory_config = get_config_section('shared_memory')
 
-        # Extract parameters from merged config
-        self.max_memory = self.memory_config.get('max_memory_mb', 100) * 1024**2
-        self._max_versions = self.memory_config.get('max_versions', 10)
-        self.ttl_check_interval = self.memory_config.get('ttl_check_interval', 30) # Default time-to-live
-        self.network_latency = self.memory_config.get('network_latency', 0.0)
-        self._default_ttl = self.memory_config.get('default_ttl', 3600)
+        try:
+            self.config = load_global_config()
+            self.memory_config = get_config_section('shared_memory')
 
-        self._lock = multiprocessing.RLock()
-        self._data = {}
-        self._expiration = {}
-        self.subscribers = {}
-        self.callbacks = {}
-        self._tags = defaultdict(list)
+            self.max_memory = self.memory_config.get('max_memory_mb', 100) * 1024**2
+            self._max_versions = self.memory_config.get('max_versions', 10)
+            self.ttl_check_interval = self.memory_config.get('ttl_check_interval', 30)
+            self.network_latency = self.memory_config.get('network_latency', 0.0)
+            self._default_ttl = self.memory_config.get('default_ttl', 3600)
 
-        self.current_memory = 0  # Initialize memory usage counter
-        self._access_log = OrderedDict()  # key -> last access time
-        self._priority_queue = []
-        self._last_cleanup_time = None
-        self._last_cleanup_count = 0
-        self.base_state = {}
+            self._lock = multiprocessing.RLock()          # <-- now safe
+            self._data = {}
+            self._expiration = {}
+            self.subscribers = {}
+            self.callbacks = {}
+            self._tags = defaultdict(list)
 
-        # Start background cleanup thread
-        self._start_expiration_cleaner()
+            self.current_memory = 0
+            self._access_log = OrderedDict()
+            self._priority_queue = []
+            self._last_cleanup_time = None
+            self._last_cleanup_count = 0
+            self.base_state = {}
 
-        logger.info(f"Shared Memory succesfully initialized with:")
-        logger.info(f"\nCounter: {self.current_memory}\nExperation: {self._expiration}\nSubscribers: {self.subscribers}\n")
+            self._start_expiration_cleaner()
+
+            # Mark as fully initialized only at the very end
+            self.__initialized = True
+            logger.info("Shared Memory successfully initialized")
+
+        except Exception:
+            # If anything goes wrong, discard this broken instance
+            type(self)._instance = None
+            raise
 
     def get_usage_stats(self) -> dict:
         """Returns detailed statistics about memory usage and system performance."""
@@ -874,63 +876,41 @@ def get_shared_memory():
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     print("\n=== Running Shared Memory ===\n")
+
     sm = SharedMemory()
-    print(f"\n======================================")
-    print(sm.max_memory)  # Should output 200 * 1024^2
-    print(sm._simulate_network())
+    sm.clear_all()
 
-    print("\n* * * * * Phase 2 * * * * *\n")
+    # Basic set/get with versioning
+    ts1 = sm.set("k1", {"v": 1}, ttl=10)
+    sm.set("k1", {"v": 2}, ttl=10)
+    assert sm.get("k1") == {"v": 2}
+    assert sm.get("k1", version_timestamp=ts1) == {"v": 1}
 
-    sm.network_latency = 0.5
-    sm.put("model_weights", None)
+    # TTL expiration
+    sm.set("temp", "x", ttl=0.01)
+    time.sleep(0.02)
+    assert sm.get("temp") is None
 
-    print("\n* * * * * Phase 3 * * * * *\n")
-    sm.register_callback("default_channel", callable)
+    # compare-and-swap and increment
+    sm.set("counter", 1)
+    assert sm.compare_and_swap("counter", 1, 2) is True
+    assert sm.increment("counter", 3) == 5
 
-    print("\n* * * * * Phase 4: Testing SharedMemoryManager * * * * *\n")
-    manager = SharedMemoryManager()
-    server_address = ('127.0.0.1', 8000)
+    # Priority queue retrieval
+    sm.put("low", "L", priority=1)
+    sm.put("high", "H", priority=5)
+    top = sm.get_next_prioritized_item()
+    assert top[0] == "high"
 
-    try:
-        print(f"Attempting to start SharedMemoryManager server on {server_address}...")
-        # manager.start() uses default authkey b'secret' if not specified
-        manager.start(address=server_address) 
-        print("SharedMemoryManager server running.")
+    # Persistence
+    test_path = "report/shared_memory_test.pkl"
+    sm.save_to_file(test_path)
+    sm.clear_all()
+    assert sm.get("k1") is None
+    sm.load_from_file(test_path)
+    assert sm.get("counter") == 5
 
-        # Get the proxy to the SharedMemory instance managed by the server
-        sm_managed = manager.get_shared_memory()
-        
-        sm_managed.put('global_config', {'mode': 'production'})
-        config = sm_managed.get('global_config')
-        print(f"Config from managed SharedMemory: {config}")
+    stats = sm.get_usage_stats()
+    assert "current_memory_mb" in stats and "item_count" in stats
 
-        # Your original print statement might have a typo, it should be:
-        print("\n=== Successfully Ran Shared Memory Manager Test ===\n")
-
-    except OSError as e:
-        # Check if the error is related to the port being in use
-        # WinError 10048 for "address already in use"
-        if e.winerror == 10048 if hasattr(e, 'winerror') else "already in use" in str(e).lower():
-            print(f"ERROR: Port {server_address[1]} at {server_address[0]} is already in use.")
-            print("Please ensure no other process is using this port (e.g., a previous run of this script).")
-            print("You can check active ports using 'netstat -ano | findstr \"<PORT_NUMBER>\"' on Windows.")
-            print("Or, try changing the port number in the script.")
-        else:
-            print(f"An OS error occurred during manager operation: {e}")
-            import traceback
-            traceback.print_exc() # Print full traceback for other OS errors
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        import traceback
-        traceback.print_exc() # Print full traceback for other errors
-    finally:
-        # Ensure the manager is shut down if it was started
-        if manager._manager is not None and getattr(manager._manager, "_process", None) and manager._manager._process.is_alive():
-            print("Shutting down SharedMemoryManager server...")
-            manager.shutdown()
-            print("SharedMemoryManager server shut down.")
-        elif manager._manager is not None: # Manager object exists but process might not be alive (e.g. start failed)
-            print("SharedMemoryManager server was initialized but might not have started correctly or is already shut down.")
-        else:
-            print("SharedMemoryManager was not started (or start was attempted but failed early).")
-    print("\n=== Successfully Ran Shared Memory ===\n")
+    print("All shared_memory.py tests passed.\n")
