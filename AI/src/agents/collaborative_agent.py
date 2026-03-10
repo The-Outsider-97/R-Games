@@ -1,434 +1,517 @@
-from __future__ import annotations
+__version__ = "1.8.0"
 
-__version__ = "2.0.0"
-
-"""
-Collaborative agent built on shared BaseAgent architecture.
-
-Features:
-1. Comprehensive safety monitoring with Bayesian risk assessment
-2. Multi-agent task coordination with optimization
-3. Thread-safe shared memory operations
-4. Configuration management
-5. Serialization/deserialization support
-6. Performance tracking and metrics
-"""
-
-import json
-import threading
+import torch
+import math
 import time
+import re
+import yaml, json
+import torch.nn as nn
 
-from dataclasses import asdict, dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from collections import OrderedDict, deque
+from typing import Dict, List, Any, Union, Optional, Callable
 
-from src.agents.base.utils.main_config_loader import get_config_section, load_global_config
+from src.agents.base.utils.main_config_loader import load_global_config, get_config_section
+from src.agents.safety.safety_guard import SafetyGuard
+from src.agents.language.orthography_processor import OrthographyProcessor
+from src.agents.language.dialogue_context import DialogueContext
+from src.agents.language.grammar_processor import (
+    GrammarProcessor, InputToken as GrammarProcessorInputToken, GrammarAnalysisResult)
+from src.agents.language.nlg_engine import NLGEngine
+from src.agents.language.nlu_engine import NLUEngine, Wordlist
+from src.agents.language.nlp_engine import NLPEngine, Token as NLPEngineToken
+from src.agents.language.utils.rules import DependencyRelation
+from src.agents.language.utils.linguistic_frame import LinguisticFrame, SpeechActType
 from src.agents.base_agent import BaseAgent
-from src.agents.collaborative.collaboration_manager import CollaborationManager
 from logs.logger import get_logger, PrettyPrinter
 
-logger = get_logger("Collaborative Agent")
+logger = get_logger("Language Agent")
 printer = PrettyPrinter
 
-class RiskLevel(str, Enum):
-    LOW = "low"
-    MODERATE = "moderate"
-    HIGH = "high"
-    CRITICAL = "critical"
+class LanguageAgent(BaseAgent):
+    def __init__(self,
+                 shared_memory, agent_factory,
+                 config=None,):
+        super().__init__(
+            shared_memory=shared_memory,
+            agent_factory=agent_factory,
+            config=config)
+        self.config = load_global_config()
+        self.language_config = get_config_section('language_agent')
 
+        self.language_agent = []
+        self.shared_memory = shared_memory
+        self.agent_factory = agent_factory
 
-@dataclass
-class SafetyAssessment:
-    risk_score: float
-    threshold: float
-    risk_level: RiskLevel
-    recommended_action: str
-    confidence: float
-    source_agent: str = "unknown"
-    task_type: str = "general"
-    timestamp: float = field(default_factory=time.time)
+        # Initialize Wordlist
+        self.wordlist = Wordlist()
 
-    def to_dict(self) -> Dict[str, Any]:
-        data = asdict(self)
-        data["risk_level"] = self.risk_level.value
-        return data
-
-    @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "SafetyAssessment":
-        data = dict(payload)
-        data["risk_level"] = RiskLevel(data.get("risk_level", RiskLevel.MODERATE.value))
-        return cls(**data)
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict())
-
-    @classmethod
-    def from_json(cls, raw: str) -> "SafetyAssessment":
-        return cls.from_dict(json.loads(raw))
-
-
-class BayesianRiskModel:
-    def __init__(self, alpha: float = 1.0, beta: float = 1.0):
-        self._default_alpha = max(alpha, 0.01)
-        self._default_beta = max(beta, 0.01)
-        self._posterior: Dict[str, List[float]] = {}
-        self._lock = threading.RLock()
-
-    def _ensure_key(self, key: str) -> None:
-        if key not in self._posterior:
-            self._posterior[key] = [self._default_alpha, self._default_beta]
-
-    def update(self, key: str, event_was_safe: bool) -> None:
-        with self._lock:
-            self._ensure_key(key)
-            if event_was_safe:
-                self._posterior[key][0] += 1.0
-            else:
-                self._posterior[key][1] += 1.0
-
-    def threshold(self, key: str, fallback: float = 0.7) -> float:
-        with self._lock:
-            self._ensure_key(key)
-            alpha, beta = self._posterior[key]
-            safe_rate = alpha / (alpha + beta)
-            return max(0.05, min(0.95, 0.25 + 0.7 * safe_rate if safe_rate > 0 else fallback))
-
-    def snapshot(self) -> Dict[str, List[float]]:
-        with self._lock:
-            return {k: [v[0], v[1]] for k, v in self._posterior.items()}
-
-class CollaborativeAgent(BaseAgent):
-    capabilities = ["coordination", "safety_assessment", "shared_memory"]
-
-    def __init__(self, shared_memory=None, agent_factory=None, config: Optional[Dict[str, Any]] = None):
-        super().__init__(shared_memory=shared_memory, agent_factory=agent_factory, config=config)
-        self.name = "CollaborativeAgent"
-        self._lock = threading.RLock()
-
-        self.global_config = load_global_config()
-        self.collaborative_config = get_config_section("collaborative_agent") or {}
-        if not self.collaborative_config:
-            self.collaborative_config = get_config_section("task_routing") or {}
-
-        self.risk_threshold = float(self.collaborative_config.get("risk_threshold", 0.7))
-        self.max_concurrent_tasks = int(self.collaborative_config.get("max_concurrent_tasks", 100))
-        self.load_factor = float(self.collaborative_config.get("load_factor", 0.75))
-        self.optimization_weight_capability = float(self.collaborative_config.get("optimization_weight_capability", 0.5))
-        self.optimization_weight_load = float(self.collaborative_config.get("optimization_weight_load", 0.3))
-        self.optimization_weight_risk = float(self.collaborative_config.get("optimization_weight_risk", 0.2))
-        self.bayes_prior_alpha = float(self.collaborative_config.get("bayes_prior_alpha", 1.0))
-        self.bayes_prior_beta = float(self.collaborative_config.get("bayes_prior_beta", 1.0))
-        self.use_collaboration_manager = bool(self.collaborative_config.get("use_collaboration_manager", True))
-
-        if config:
-            self.risk_threshold = float(config.get("risk_threshold", self.risk_threshold))
-            self.max_concurrent_tasks = int(config.get("max_concurrent_tasks", self.max_concurrent_tasks))
-            self.load_factor = float(config.get("load_factor", self.load_factor))
-            self.optimization_weight_capability = float(config.get("optimization_weight_capability", self.optimization_weight_capability))
-            self.optimization_weight_load = float(config.get("optimization_weight_load", self.optimization_weight_load))
-            self.optimization_weight_risk = float(config.get("optimization_weight_risk", self.optimization_weight_risk))
-            self.bayes_prior_alpha = float(config.get("bayes_prior_alpha", self.bayes_prior_alpha))
-            self.bayes_prior_beta = float(config.get("bayes_prior_beta", self.bayes_prior_beta))
-            self.use_collaboration_manager = bool(config.get("use_collaboration_manager", self.use_collaboration_manager))
-
-        self._risk_model = BayesianRiskModel(alpha=self.bayes_prior_alpha, beta=self.bayes_prior_beta)
-        self.collaboration_manager = CollaborationManager(shared_memory=self.shared_memory) if self.use_collaboration_manager else None
-
-        self._metrics = {
-            "assessments_completed": 0,
-            "high_risk_interventions": 0,
-            "tasks_coordinated": 0,
-            "coordination_failures": 0,
-            "avg_assessment_latency_ms": 0.0,
-            "avg_coordination_latency_ms": 0.0,
-            "delegated_tasks": 0,
-            "delegation_failures": 0,
-        }
-
-    def shared_get(self, key: str, default: Any = None) -> Any:
-        with self._lock:
-            return self.shared_memory.get(key, default)
-
-    def shared_set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
-        with self._lock:
-            if ttl is not None:
-                self.shared_memory.set(key, value, ttl=ttl)
-            else:
-                self.shared_memory.set(key, value)
-
-    def shared_update(self, key: str, updates: Dict[str, Any]) -> Dict[str, Any]:
-        with self._lock:
-            current = self.shared_memory.get(key, {}) or {}
-            if not isinstance(current, dict):
-                current = {"value": current}
-            current.update(updates)
-            self.shared_memory.set(key, current)
-            return current
-
-    def assess_risk(
-        self,
-        risk_score: float,
-        task_type: str = "general",
-        source_agent: str = "unknown",
-        context: Optional[Dict[str, Any]] = None,
-    ) -> SafetyAssessment:
-        start = time.perf_counter()
-        risk_score = max(0.0, min(1.0, float(risk_score)))
-
-        task_key = f"task:{task_type}"
-        agent_key = f"agent:{source_agent}"
-        dynamic_threshold = min(
-            self._risk_model.threshold(task_key),
-            self._risk_model.threshold(agent_key),
-            float(self.collaborative_config.get("risk_threshold", self.risk_threshold)),
-        )
-
-        if risk_score >= dynamic_threshold * 1.4:
-            level = RiskLevel.CRITICAL
-            action = "halt_and_escalate"
-        elif risk_score >= dynamic_threshold:
-            level = RiskLevel.HIGH
-            action = "human_review"
-        elif risk_score >= dynamic_threshold * 0.6:
-            level = RiskLevel.MODERATE
-            action = "proceed_with_guardrails"
+        # Initialize Components
+        self.orthography_processor = OrthographyProcessor()
+        self.grammar_processor = GrammarProcessor()
+        self.dialogue_context = DialogueContext()
+        self.nlp_engine = NLPEngine()
+        self.nlu_engine = NLUEngine(wordlist_instance=self.wordlist)
+        if not self.nlu_engine.intent_patterns:
+            logger.error("NLU Engine failed to load intent patterns!")
         else:
-            level = RiskLevel.LOW
-            action = "proceed"
+            logger.info(f"NLU Engine loaded {len(self.nlu_engine.intent_patterns)} intent patterns")
+        self.nlg_engine = NLGEngine()
+        self.safety_guard = SafetyGuard()
+        self.response()
 
-        assessment = SafetyAssessment(
-            risk_score=risk_score,
-            threshold=dynamic_threshold,
-            risk_level=level,
-            recommended_action=action,
-            confidence=max(0.0, min(1.0, 1.0 - abs(risk_score - dynamic_threshold))),
-            source_agent=source_agent,
-            task_type=task_type,
-        )
+        print("Language Agent Successfully initialized local components")
 
-        event_was_safe = level in (RiskLevel.LOW, RiskLevel.MODERATE)
-        self._risk_model.update(task_key, event_was_safe)
-        self._risk_model.update(agent_key, event_was_safe)
+    def pipeline(self, user_input_text: str, session_id: Optional[str] = None) -> str:
+        """
+        Processes user input through the language processing pipeline and returns the agent's response.
 
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        self._update_metric("assessments_completed", 1)
-        self._rolling_metric("avg_assessment_latency_ms", elapsed_ms, "assessments_completed")
-        if level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-            self._update_metric("high_risk_interventions", 1)
+        User Input
+        ↓
+        OrthographyProcessor → spellcheck + normalize
+        ↓
+        NLPEngine → tokenize, lemmatize, POS, etc.
+        ↓
+        GrammarProcessor → parse + grammar checks (uses NLPEngine)
+        ↓
+        NLUEngine → determine intent/entities (uses NLPEngine + tokenizer + embeddings)
+        ↓
+        DialogueContext → tracks recent turns
+        ↓
+        NLGEngine → generate response
+        ↓
+        DialogueContext → log new turn
+        ↓
+        Agent Output
+        """
+        logger.info(f"Pipeline started for input: '{user_input_text[:50]}...'")
 
-        if context:
-            self.shared_update("collaborative:last_assessment_context", context)
-        self.shared_set("collaborative:last_assessment", assessment.to_dict())
-        return assessment
-
-    def coordinate_tasks(
-        self,
-        tasks: List[Dict[str, Any]],
-        available_agents: Dict[str, Dict[str, Any]],
-        optimization_goals: Optional[List[str]] = None,
-        constraints: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        start = time.perf_counter()
-        constraints = constraints or {}
-
-        if not tasks or not available_agents:
-            self._update_metric("coordination_failures", 1)
-            return {"status": "error", "error": "tasks and available_agents are required"}
-
-        assignments: Dict[str, Dict[str, Any]] = {}
-        max_tasks_per_agent = int(constraints.get("max_tasks_per_agent", self.collaborative_config.get("max_concurrent_tasks", self.max_concurrent_tasks)))
-        agent_loads = {name: int(meta.get("current_load", 0)) for name, meta in available_agents.items()}
-
-        for task in sorted(tasks, key=lambda t: (t.get("deadline", float("inf")), -float(t.get("priority", 0)))):
-            task_id = str(task.get("id", f"task-{len(assignments)+1}"))
-
-            delegated = self._try_manager_delegation(task)
-            if delegated is not None:
-                assignments[task_id] = delegated
-                continue
-
-            chosen_agent, chosen_score = self._select_best_agent(task, available_agents, agent_loads)
-            if chosen_agent is None:
-                assignments[task_id] = {"status": "unassigned", "reason": "no_capable_agent"}
-                continue
-
-            assessment = self.assess_risk(
-                risk_score=float(task.get("estimated_risk", 0.5)),
-                task_type=task.get("type", "general"),
-                source_agent=chosen_agent,
-            )
-            if assessment.risk_level == RiskLevel.CRITICAL:
-                assignments[task_id] = {"status": "rejected_high_risk", "agent": chosen_agent, "safety": assessment.to_dict()}
-                continue
-
-            assignments[task_id] = {
-                "status": "assigned",
-                "agent": chosen_agent,
-                "optimization_score": round(chosen_score, 4),
-                "safety": assessment.to_dict(),
-            }
-            agent_loads[chosen_agent] += 1
-            if agent_loads[chosen_agent] >= max_tasks_per_agent:
-                available_agents[chosen_agent]["_saturated"] = True
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        self._update_metric("tasks_coordinated", len(tasks))
-        self._rolling_metric("avg_coordination_latency_ms", elapsed_ms, "tasks_coordinated")
-
-        result = {
-            "status": "success",
-            "assignments": assignments,
-            "metrics": self.get_metrics(),
-            "optimization_goals": optimization_goals or ["minimize_risk", "balance_load"],
-        }
-        self.shared_set("collaborative:last_coordination", result)
-        return result
-
-    def _try_manager_delegation(self, task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if self.collaboration_manager is None:
-            return None
-        task_type = task.get("type")
-        if not task_type:
-            return None
+        # 0a. Sanitize User Input
         try:
-            result = self.collaboration_manager.run_task(task_type, task, retries=1)
-            self._update_metric("delegated_tasks", 1)
-            return {"status": "delegated", "task_type": task_type, "result": result}
-        except Exception as exc:
-            self._update_metric("delegation_failures", 1)
-            logger.debug("Delegation failed for task type %s: %s", task_type, exc)
-            return None
+            original_user_input = user_input_text
+            user_input_text = self.safety_guard.sanitize(user_input_text, depth='balanced')
+            logger.debug(f"Sanitized user input: '{user_input_text[:50]}...'")
+        except Exception as e:
+            logger.error(f"SafetyGuard sanitization failed for user input: {e}. Aborting pipeline for safety.")
+            safe_response = "I'm sorry, your input triggered a safety concern. Please rephrase or try something else."
+            logger.warning(f"Safety block triggered by original input: '{original_user_input}'")
+            self.dialogue_context.add_message(role="user", content=original_user_input + " [Safety Blocked]")
+            self.dialogue_context.add_message(role="agent", content=safe_response)
+            return safe_response
 
-    def _select_best_agent(
-        self,
-        task: Dict[str, Any],
-        available_agents: Dict[str, Dict[str, Any]],
-        agent_loads: Dict[str, int],
-    ) -> Tuple[Optional[str], float]:
-        required = set(task.get("requirements", []))
-        best_agent: Optional[str] = None
-        best_score = -1.0
+        # 0b. Update DialogueContext with session_id
+        if session_id and self.dialogue_context.get_environment_state("session_id") != session_id:
+            self.dialogue_context.update_environment_state("session_id", session_id)
+            logger.info(f"Dialogue context session ID set to: {session_id}")
 
-        for agent_name, meta in available_agents.items():
-            if meta.get("_saturated"):
-                continue
-            capabilities = set(meta.get("capabilities", []))
-            if required and not required.issubset(capabilities):
-                continue
+        # 1. Orthography Processing
+        ortho_corrected_text = user_input_text
+        try:
+            processed = self.orthography_processor.batch_process(user_input_text)
+            if processed is not None and processed.strip():
+                 ortho_corrected_text = processed
+            logger.debug(f"Orthographically corrected text: '{ortho_corrected_text[:50]}...'")
+        except Exception as e:
+            logger.error(f"OrthographyProcessor failed: {e}. Using sanitized text: '{user_input_text[:50]}...'.")
 
-            capability_score = (len(required & capabilities) / max(1, len(required))) if required else 1.0
-            load_score = 1.0 / (1.0 + float(agent_loads.get(agent_name, 0)))
-            risk_score = self._risk_model.threshold(f"agent:{agent_name}")
+        # 2. NLP Engine Processing (Tokenization, Lemmatization, POS, etc.)
+        nlp_tokens: List[NLPEngineToken] = []
+        try:
+            nlp_tokens = self.nlp_engine.process_text(ortho_corrected_text)
+            if not nlp_tokens:
+                logger.warning("NLPEngine produced no tokens. Aborting further processing for this input.")
+                error_frame = LinguisticFrame("nlp_error", {"reason": "No tokens produced"}, 0.0, "error", 0.9, SpeechActType.ASSERTIVE)
+                self.dialogue_context.add_message(role="user", content=original_user_input)
+                agent_response = self.nlg_engine.generate(error_frame, self.dialogue_context)
+                self.dialogue_context.add_message(role="agent", content=agent_response)
+                return agent_response
+            logger.debug(f"NLPEngine processed into {len(nlp_tokens)} tokens.")
+        except Exception as e:
+            logger.error(f"NLPEngine failed: {e}. Cannot proceed with grammar/NLU.")
+            error_frame = LinguisticFrame(
+                "nlp_error", {"error_module": "nlp_engine", "detail": str(e)}, 0.0,
+                "error", 1.0, SpeechActType.ASSERTIVE)
+            self.dialogue_context.add_message(role="user", content=original_user_input)
+            agent_response = self.nlg_engine.generate(error_frame, self.dialogue_context)
+            self.dialogue_context.add_message(role="agent", content=agent_response)
+            return agent_response
 
-            score = (
-                self.collaborative_config.get("optimization_weight_capability", self.optimization_weight_capability) * capability_score
-                + self.collaborative_config.get("optimization_weight_load", self.optimization_weight_load) * load_score
-                + self.collaborative_config.get("optimization_weight_risk", self.optimization_weight_risk) * risk_score
+        # 3. Grammar Processing
+        grammar_analysis_result: Optional[GrammarAnalysisResult] = None
+        dependencies: List[DependencyRelation] = []
+        try:
+            dependencies = self.nlp_engine.apply_dependency_rules(nlp_tokens)
+            logger.debug(f"NLPEngine produced {len(dependencies)} dependency relations.")
+        
+            grammar_input_tokens: List[GrammarProcessorInputToken] = []
+            # Map token original index to its NLPEngineToken object for quick lookup if needed
+            indexed_nlp_tokens = {tok.index: tok for tok in nlp_tokens} # Not strictly needed with current dep structure
+        
+            # Use reconstructed text from tokens instead of ortho_corrected_text
+            reconstructed_text = " ".join([tok.text for tok in nlp_tokens])
+            current_char_offset = 0
+        
+            for nlp_tok in nlp_tokens:
+                token_head_idx = nlp_tok.index  # Default: token is its own head
+                token_dep_rel = "dep"          # Default: generic dependency relation (or "root" if it's a root)
+        
+                is_explicit_root = False
+                # Find this token in the dependency relations
+                for dep_rel in dependencies:
+                    if dep_rel.dependent_index == nlp_tok.index:
+                        if dep_rel.head == "ROOT" and dep_rel.relation == "root":
+                            # This token is the root of the sentence as defined by NLPEngine
+                            token_head_idx = nlp_tok.index # Root points to itself for GrammarProcessor
+                            token_dep_rel = "root"
+                            is_explicit_root = True
+                        else:
+                            # Ensure head_index refers to an actual token's index
+                            # NLPEngine's DependencyRelation.head_index is the original index of the head token
+                            token_head_idx = dep_rel.head_index
+                            token_dep_rel = dep_rel.relation
+                        break # Found relation for this token as a dependent
+                
+                if not is_explicit_root and not any(dep_rel.dependent_index == nlp_tok.index for dep_rel in dependencies):
+                    # If token is not a dependent of anything, and not explicitly marked as ROOT's dependent,
+                    # it could be an isolated token or the implicit root of a fragment.
+                    # Check if it's marked as a head of a "root" relation (another way NLPEngine might mark roots)
+                    is_head_of_root_rel = False
+                    for dep_rel in dependencies:
+                        if dep_rel.head_index == nlp_tok.index and dep_rel.relation == "root" and dep_rel.head == "ROOT":
+                            token_head_idx = nlp_tok.index
+                            token_dep_rel = "root"
+                            is_head_of_root_rel = True
+                            break
+                    if not is_head_of_root_rel: # If truly unattached by rules, mark as its own root
+                         token_head_idx = nlp_tok.index
+                         token_dep_rel = "root" # Or "dep" if convention is different
+        
+                # Calculate character offsets using reconstructed text
+                try:
+                    start_char_abs = reconstructed_text.index(nlp_tok.text, current_char_offset)
+                    end_char_abs = start_char_abs + len(nlp_tok.text) - 1
+                    current_char_offset = start_char_abs + len(nlp_tok.text)
+                except ValueError:
+                    # Fallback to simple position estimation
+                    start_char_abs = current_char_offset
+                    end_char_abs = current_char_offset + len(nlp_tok.text) - 1
+                    current_char_offset = end_char_abs + 2
+                    logger.warning(f"Token '{nlp_tok.text}' position estimated: {start_char_abs}-{end_char_abs}")
+        
+                gp_token = GrammarProcessorInputToken(
+                    text=nlp_tok.text,
+                    lemma=nlp_tok.lemma,
+                    pos=nlp_tok.pos,
+                    index=nlp_tok.index, # Use the original index from NLPEngineToken
+                    head=token_head_idx, # Head is the index of the head token
+                    dep=token_dep_rel,
+                    start_char_abs=start_char_abs,
+                    end_char_abs=end_char_abs
+                )
+                grammar_input_tokens.append(gp_token)
+
+            # Assuming single sentence for now, based on how nlp_tokens are structured
+            sentences_for_grammar: List[List[GrammarProcessorInputToken]] = [grammar_input_tokens] if grammar_input_tokens else []
+            
+            if sentences_for_grammar: # Only analyze if there are tokens
+                grammar_analysis_result = self.grammar_processor.analyze_text(
+                    sentences_for_grammar,
+                    full_text_snippet=ortho_corrected_text
+                )
+                if grammar_analysis_result:
+                    logger.debug(f"Grammar analysis complete. Grammatical: {grammar_analysis_result.is_grammatical}")
+                    for sent_analysis in grammar_analysis_result.sentence_analyses:
+                        if sent_analysis.get('issues'):
+                            logger.info(f"Grammar issues in '{sent_analysis.get('text','N/A')[:30]}...': {len(sent_analysis['issues'])}")
+            else:
+                logger.info("No tokens available for grammar processing.")
+
+        except Exception as e:
+            logger.error(f"GrammarProcessor or pre-processing failed: {e}", exc_info=True)
+            # Grammar check is not strictly blocking for NLU/NLG
+
+        # 4. NLU Engine Processing (Intent, Entities)
+        linguistic_frame: Optional[LinguisticFrame] = None
+        try:
+            linguistic_frame = self.nlu_engine.parse(ortho_corrected_text) # Returns LinguisticFrame object
+            logger.debug(f"NLU result: Intent='{linguistic_frame.intent}', Entities='{linguistic_frame.entities}', Sentiment='{linguistic_frame.sentiment:.2f}', Modality='{linguistic_frame.modality}', Confidence='{linguistic_frame.confidence:.2f}'")
+
+            if linguistic_frame.intent == "time_request":
+                time_entity_found = any(et in linguistic_frame.entities for et in ["DATE_TIME", "TIME", "time"])
+                if not time_entity_found:
+                    linguistic_frame.entities["time"] = "current system time"
+
+            # Example: Low confidence intent handling (using dialogue_policy threshold)
+            dialogue_policy = self.load_dialogue_policy()
+            if linguistic_frame.confidence < dialogue_policy.get('low_confidence_threshold', 0.5): # Using 0.5 as a fallback default
+                logger.info(f"Low confidence intent detected ({linguistic_frame.confidence:.2f}).")
+                self.dialogue_context.add_unresolved(
+                    issue="low_confidence_intent",
+                    slot=None 
+                )
+                self.dialogue_context.update_environment_state(
+                    "pending_intent", 
+                    linguistic_frame.intent
+                )
+                self.dialogue_context.update_environment_state(
+                    "pending_entities", 
+                    linguistic_frame.entities
+                )
+
+        except Exception as e:
+            logger.error(f"NLUEngine failed: {e}", exc_info=True)
+            linguistic_frame = LinguisticFrame(
+                intent="nlu_error",
+                entities={"error_module": "nlu_engine", "detail": str(e)},
+                sentiment=0.0,
+                modality="error",
+                confidence=1.0,
+                act_type=SpeechActType.ASSERTIVE
             )
-            if score > best_score:
-                best_score = score
-                best_agent = agent_name
 
-        return best_agent, best_score
+        # 5. Dialogue Context Update (User Turn)
+        try:
+            self.dialogue_context.add_message(role="user", content=original_user_input)
+            if linguistic_frame:
+                self.dialogue_context.register_intent(intent=linguistic_frame.intent, confidence=linguistic_frame.confidence)
+                if linguistic_frame.entities:
+                    for entity_type, entity_values in linguistic_frame.entities.items():
+                        value_to_log = entity_values[0] if isinstance(entity_values, list) and entity_values else entity_values
+                        if value_to_log is not None and (isinstance(value_to_log, str) and value_to_log.strip() != '' or not isinstance(value_to_log, str)):
+                             self.dialogue_context.update_slot(entity_type, value_to_log)
+            logger.debug("DialogueContext updated with user turn.")
+        except Exception as e:
+            logger.error(f"DialogueContext update (user turn) failed: {e}", exc_info=True)
 
-    def perform_task(self, task_input: Dict[str, Any]) -> Dict[str, Any]:
-        mode = task_input.get("mode", "coordinate")
-        if mode == "assess":
-            assessment = self.assess_risk(
-                risk_score=float(task_input.get("risk_score", 0.5)),
-                task_type=task_input.get("task_type", "general"),
-                source_agent=task_input.get("source_agent", "unknown"),
-                context=task_input.get("context"),
-            )
-            return {"status": "success", "assessment": assessment.to_dict()}
-
-        return self.coordinate_tasks(
-            tasks=task_input.get("tasks", []),
-            available_agents=task_input.get("available_agents", {}),
-            optimization_goals=task_input.get("optimization_goals"),
-            constraints=task_input.get("constraints"),
+        # 6. NLG Engine Processing (Generate Response)
+        pending_clarification = any(
+            issue.get('description') == 'low_confidence_intent' 
+            for issue in self.dialogue_context.unresolved_issues
         )
+        
+        agent_response_text = ""
+        if pending_clarification:
+            clarification_intent = self.dialogue_context.get_environment_state("pending_intent")
+            clarification_entities = self.dialogue_context.get_environment_state("pending_entities") or {}
+            
+            # Ensure entities are in a format NLG can handle (e.g., string representations)
+            formatted_entities_for_nlg = {}
+            if isinstance(clarification_entities, dict):
+                for k, v_list in clarification_entities.items():
+                    if isinstance(v_list, list) and v_list:
+                        # Take the first item if it's a list, or join if appropriate
+                        formatted_entities_for_nlg[k] = str(v_list[0]) 
+                    elif v_list is not None:
+                         formatted_entities_for_nlg[k] = str(v_list)
+            
+            clarification_frame = LinguisticFrame(
+                intent="clarification_request", # This intent should exist in nlg_templates.json
+                entities={
+                    "pending_intent": clarification_intent or "your request",
+                    "mentioned_entities": ", ".join(f"{k}: {v}" for k,v in formatted_entities_for_nlg.items()) or "the details provided"
+                },
+                sentiment=0.0,
+                modality="interrogative", # A clarification is often a question
+                confidence=1.0,
+                act_type=SpeechActType.DIRECTIVE # Requesting user to act (clarify)
+            )
+            agent_response_text = self.nlg_engine.generate(
+                frame=clarification_frame,
+                context=self.dialogue_context # Pass DialogueContext object
+            )
+        else:
+            if linguistic_frame is None: # Should have been caught or defaulted by NLU error handling
+                 linguistic_frame = LinguisticFrame("internal_error", {}, 0.0, "error", 1.0, SpeechActType.ASSERTIVE)
+            agent_response_text = self.nlg_engine.generate(
+                frame=linguistic_frame,
+                context=self.dialogue_context # Pass DialogueContext object
+            )
 
-    def serialize_state(self) -> str:
-        return json.dumps(
-            {
-                "name": self.name,
-                "config": self.collaborative_config,
-                "metrics": self._metrics,
-                "risk_model": self._risk_model.snapshot(),
-                "timestamp": time.time(),
+        # 6b. Sanitize Agent Output
+        agent_response_to_log = agent_response_text 
+        try:
+            processed_response = self.safety_guard.sanitize(agent_response_text, depth='balanced')
+            if processed_response is not None and processed_response.strip():
+                agent_response_text = processed_response
+            logger.debug(f"Sanitized agent response: '{agent_response_text[:50]}...'")
+        except Exception as e:
+            logger.error(f"SafetyGuard sanitization failed for agent response: {e}. Sending generic safe response.")
+            agent_response_text = "I apologize, but I encountered an issue ensuring my response was safe. Please try rephrasing."
+            logger.warning(f"Agent response failed safety check: '{agent_response_to_log}'")
+
+
+        # 7. Dialogue Context Update (Agent Turn)
+        try:
+            self.dialogue_context.add_message(role="agent", content=agent_response_text)
+            logger.debug("DialogueContext updated with agent turn.")
+        except Exception as e:
+            logger.error(f"DialogueContext update (agent turn) failed: {e}", exc_info=True)
+
+        # 8. Return Agent Output
+        logger.info(f"Pipeline finished. Output: '{agent_response_text[:50]}...'")
+        return agent_response_text
+
+    def response(self):
+        pass
+
+    def _preprocess_with_ortho(self, text: str) -> str:
+        """Add agent-specific spelling checks before standard processing"""
+        if self.config.get("custom_dictionary_check"):
+            return self.orthography_processor.correct_with_custom_rules(text)
+        return self.orthography_processor.batch_process(text)
+    
+    def _get_enhanced_entities(self, tokens: list):
+        """Add agent-specific entity enrichment"""
+        entities = self.nlp_engine.extract_entities(tokens)
+        if self.config.get("augment_with_wordnet"):
+            return self._augment_entities_with_wordnet(entities)
+        return entities
+
+    def _dialogue_context(self):
+        """
+        Handle high-level dialogue flow and state management.
+        - Manage clarification cycles
+        - Reset context when needed
+        - Check for conversation timeouts
+        """
+        # 1. Check for unresolved issues requiring agent action
+        if any(issue['description'] == 'low_confidence_intent' 
+               for issue in self.dialogue_context.unresolved_issues):
+            logger.info("Pending intent clarification detected")
+            return self._handle_clarification_flow()
+    
+        # 2. Check conversation timeout
+        if self.dialogue_context.get_time_since_last_interaction() > 300:  # 5 minutes
+            logger.info("Resetting stale conversation context")
+            self.dialogue_context.clear()
+            return True
+    
+        # 3. Check required slots fulfillment
+        if not self.dialogue_context.required_slots_filled:
+            missing = self.dialogue_context.get_missing_slots()
+            logger.info(f"Missing required slots: {missing}")
+            return False
+    
+        return None
+    
+    def _handle_clarification_flow(self):
+        """Manage clarification attempts and fallbacks"""
+        clarification_attempts = sum(
+            1 for issue in self.dialogue_context.unresolved_issues
+            if issue['description'] == 'low_confidence_intent'
+        )
+        
+        if clarification_attempts > self.load_dialogue_policy().get('reprompt_limit', 2):
+            logger.warning("Clarification attempt limit reached")
+            self.dialogue_context.unresolved_issues = [
+                issue for issue in self.dialogue_context.unresolved_issues
+                if issue['description'] != 'low_confidence_intent'
+            ]
+            return False
+        
+        return True
+
+    def load_dialogue_policy(self) -> Dict:
+        """Load conversation rules from embedded config or a file."""
+        # This can be expanded to load from a YAML/JSON if policy becomes complex
+        policy_config = self.config.get("dialogue_policy", {}) # Assuming 'dialogue_policy' key in main agent config
+        
+        # Fallback to default if not found in config
+        default_policy = {
+            'clarification_triggers': ['unknown_intent', 'nlu_error', 'low_confidence_intent'], # Intent names or conditions
+            'low_confidence_threshold': 0.4, # Confidence below which an intent might trigger clarification
+            'reprompt_limit': 5, # Max number of reprompts for clarification before fallback
+            'fallback_responses': [
+                "Could you please rephrase that?",
+                "I'm not quite sure I understand. Can you say that another way?",
+                "I'm still learning. Could you provide more details?"
+            ],
+            'error_responses': {
+                "nlp_error": "I had a bit of trouble understanding the structure of your message. Could you try again?",
+                "nlu_error": "I'm having difficulty grasping the meaning. Please rephrase.",
+                "nlg_error": "I apologize, I couldn't formulate a proper response.",
+                "default_error": "Sorry, something went wrong on my end."
             }
-        )
+        }
+        # Merge loaded config with defaults, giving precedence to loaded config
+        merged_policy = {**default_policy, **policy_config}
+        # Deep merge for nested dicts like 'error_responses'
+        if 'error_responses' in policy_config and isinstance(policy_config['error_responses'], dict):
+            merged_policy['error_responses'] = {**default_policy['error_responses'], **policy_config['error_responses']}
+        
+        return merged_policy
 
-    @classmethod
-    def deserialize_state(cls, raw: str, shared_memory=None, agent_factory=None) -> "CollaborativeAgent":
-        payload = json.loads(raw)
-        agent = cls(shared_memory=shared_memory, agent_factory=agent_factory, config=payload.get("config", {}))
-        agent._metrics.update(payload.get("metrics", {}))
-        for key, values in payload.get("risk_model", {}).items():
-            if isinstance(values, list) and len(values) == 2:
-                agent._risk_model._posterior[key] = [float(values[0]), float(values[1])]
-        return agent
-
-    def save_state(self, path: str) -> None:
-        path_obj = Path(path)
-        path_obj.parent.mkdir(parents=True, exist_ok=True)
-        path_obj.write_text(self.serialize_state(), encoding="utf-8")
-
-    @classmethod
-    def load_state(cls, path: str, shared_memory=None, agent_factory=None) -> "CollaborativeAgent":
-        return cls.deserialize_state(Path(path).read_text(encoding="utf-8"), shared_memory=shared_memory, agent_factory=agent_factory)
-
-    def _update_metric(self, key: str, delta: float) -> None:
-        with self._lock:
-            self._metrics[key] = float(self._metrics.get(key, 0.0) + delta)
-
-    def _rolling_metric(self, key: str, latest: float, count_key: str) -> None:
-        with self._lock:
-            count = max(1.0, float(self._metrics.get(count_key, 1.0)))
-            old = float(self._metrics.get(key, 0.0))
-            self._metrics[key] = old + ((latest - old) / count)
-
-    def get_metrics(self) -> Dict[str, float]:
-        with self._lock:
-            return dict(self._metrics)
-
+    def predict(self, user_input: str = None) -> Dict[str, Any]:
+        """
+        Processes user input through the language pipeline and returns a structured response.
+        
+        Args:
+            user_input (str): Text input from the user
+            
+        Returns:
+            Dict[str, Any]: Contains:
+                - response: Generated agent response text
+                - confidence: Confidence score of the response
+        """
+        if not user_input:
+            return {"response": "No input provided", "confidence": 0.0}
+        
+        try:
+            response = self.pipeline(user_input)
+            return {
+                "response": response,
+                "confidence": 1.0  # Simplified confidence
+            }
+        except Exception as e:
+            logger.error(f"Prediction failed: {e}")
+            return {
+                "response": "I encountered an error processing your request",
+                "confidence": 0.0
+            }
 
 if __name__ == "__main__":
-    print("\n=== Running Collaborative Agent ===\n")
-    printer.status("TEST", "Starting Collaborative Agent tests", "info")
+    print("\n=== Running Language Agent ===\n")
     from src.agents.collaborative.shared_memory import SharedMemory
+    shared_memory_instance = SharedMemory()
+    agent_factory_instance = lambda name, cfg: None
 
-    memory = SharedMemory()
-    agent = CollaborativeAgent(shared_memory=memory, config={"use_collaboration_manager": False, "risk_threshold": 0.6})
+    try:
+        language_agent = LanguageAgent(
+            shared_memory=shared_memory_instance,
+            agent_factory=agent_factory_instance,
+            config=None
+        )
+        print("Language Agent initialized. Type your message below.")
+        print("Type 'exit' or 'quit' to end the session.\n")
 
-    assessment = agent.assess_risk(0.9, task_type="analysis", source_agent="AgentA", context={"request_id": "r1"})
-    assert assessment.risk_level in {RiskLevel.HIGH, RiskLevel.CRITICAL}
-    assert memory.get("collaborative:last_assessment") is not None
+        session_id = f"interactive-session-{time.time()}"
 
-    available_agents = {
-        "AgentA": {"capabilities": ["analysis", "nlp"], "current_load": 0},
-        "AgentB": {"capabilities": ["vision"], "current_load": 0},
-    }
-    tasks = [
-        {"id": "t1", "type": "analysis", "requirements": ["analysis"], "priority": 2, "estimated_risk": 0.2},
-        {"id": "t2", "type": "analysis", "requirements": ["analysis"], "priority": 1, "estimated_risk": 0.95},
-    ]
-    result = agent.coordinate_tasks(tasks, available_agents)
-    assert result["status"] == "success"
-    assert "t1" in result["assignments"] and "t2" in result["assignments"]
+        while True:
+            try:
+                user_input = input("User: ").strip()
+                if user_input.lower() in {"exit", "quit"}:
+                    print("Exiting Language Agent. Goodbye!")
+                    break
+                if not user_input:
+                    print("Agent: Please say something.\n")
+                    continue
 
-    state = agent.serialize_state()
-    restored = CollaborativeAgent.deserialize_state(state, shared_memory=memory)
-    assert restored.get_metrics()["assessments_completed"] >= 1
+                # Using perform_task as the entry point
+                response = language_agent.pipeline(user_input_text=user_input, session_id=session_id)
+                # Or directly call pipeline:
+                # response = language_agent.pipeline(user_input, session_id=session_id)
+                
+                print(f"Agent: {response}\n")
 
-    task_result = agent.perform_task({
-        "mode": "assess",
-        "risk_score": 0.1,
-        "task_type": "general",
-        "source_agent": "AgentA",
-    })
-    assert task_result["status"] == "success"
-
-    print("All collaborative_agent.py tests passed.\n")
+            except KeyboardInterrupt:
+                print("\n[Interrupted] Exiting Language Agent.")
+                break
+            except Exception as e:
+                logger.error(f"Error in interactive loop: {e}", exc_info=True)
+                print(f"[Error] Something went wrong: {e}")
+                # break # Optional: break on error or allow continuation
+    
+    except Exception as e:
+        logger.error(f"Failed to initialize LanguageAgent: {e}", exc_info=True)
+        print(f"[Fatal Error] Could not start Language Agent: {e}")
