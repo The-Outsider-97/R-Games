@@ -102,10 +102,10 @@ class MindweaveAI:
 
         self.knowledge_agent = self.factory.create("knowledge", self.shared_memory)
         self.planning_agent = self.factory.create("planning", self.shared_memory)
-        self.evaluation_agent = self.factory.create("evaluation", self.shared_memory)
-        self.language_agent = self.factory.create("language", self.shared_memory)
         self.safety_agent = self.factory.create("safety", self.shared_memory)
+        self.language_agent = self.factory.create("language", self.shared_memory)
         self.reasoning_agent = self.factory.create("reasoning", self.shared_memory)
+        self.evaluation_agent = self.factory.create("evaluation", self.shared_memory)
 
         self._register_task_routes()
         self._planning_task_registered = False
@@ -245,6 +245,44 @@ class MindweaveAI:
         route_result = self._route_event(event)
         self.shared_memory.set("mindweave:last_learning_event", route_result)
         return True
+
+    def chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        message = str(payload.get("message", "")).strip()
+        if not message:
+            return {"error": "message is required"}
+
+        event = self._build_event_envelope(
+            {
+                "session_id": payload.get("session_id"),
+                "player_id": payload.get("player_id"),
+                "task_type": "npc_dialogue",
+                "game_state_snapshot": payload.get("game_state_snapshot", {}),
+                "telemetry": payload.get("telemetry", {}),
+                "safety_context": payload.get("safety_context", {}),
+                "requested_action": message,
+            }
+        )
+        route_result = self._route_event(event)
+
+        lower_text = message.lower()
+        if any(token in lower_text for token in ("understand", "help", "calm")):
+            response = "Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack."
+            emotion, analysis, eq_delta = "calm", "Regulated / Stable", 5
+        elif any(token in lower_text for token in ("hurry", "now", "fix")):
+            response = "Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!"
+            emotion, analysis, eq_delta = "stress", "Agitated / Defensive", -15
+        else:
+            response = "Input acknowledged. However, the emotional context is ambiguous. Please recalibrate your active listening protocols."
+            emotion, analysis, eq_delta = "neutral", "Ambiguous", 0
+
+        self.shared_memory.set("mindweave:last_chat", {"event": event, "route": route_result})
+        return {
+            "reply": response,
+            "emotion": emotion,
+            "analysis": analysis,
+            "eq_delta": eq_delta,
+            "route": route_result,
+        }
 
 _AI_INSTANCE: MindweaveAI | None = None
 _AI_LOCK = threading.Lock()
