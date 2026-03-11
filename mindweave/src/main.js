@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const phaseButtons = Array.from(document.querySelectorAll('.phase-btn'));
   const telemetryEl = document.getElementById('telemetry');
   const objectiveLog = document.getElementById('objective-log');
+  const btnHome = document.getElementById('btn-home');
+  const btnSettings = document.getElementById('btn-settings');
+  const btnNewGame = document.getElementById('btn-new-game');
+
 
   const iqValue = document.getElementById('iq-value');
   const iqBar = document.getElementById('iq-bar');
@@ -45,6 +49,18 @@ document.addEventListener('DOMContentLoaded', () => {
     sendBtn.disabled = false;
     chatInput.focus();
   }
+
+  btnHome.addEventListener('click', () => {
+    window.location.href = '/index.html';
+  });
+
+  btnSettings.addEventListener('click', () => {
+    appendChat('SYSTEM', 'Audio controls are planned next. Settings panel will handle music/SFX mute and volume shortly.', 'text-yellow-400');
+  });
+
+  btnNewGame.addEventListener('click', () => {
+    resetGameState();
+  });
 
   document.getElementById('btn-exit').addEventListener('click', () => {
     window.location.href = '/index.html';
@@ -100,6 +116,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const emotionColors = { neutral: 0x38bdf8, stress: 0xef4444, calm: 0x10b981, thinking: 0xa855f7 };
   let currentEmotion = 'neutral';
+
+  const architectProtocolResponses = {
+    briefing: 'Campaign Protocol 1 engaged. Confirm mission parameters and we will synchronize the civic lattice.',
+    iq: 'Campaign Protocol 2 online. Precision first, Weaver—stability emerges from correct sequence decisions.',
+    eq: 'Campaign Protocol 3 active. Emotional calibration in progress. Lead with validation, then coordinate recovery.',
+    debrief: 'Campaign Protocol 4 unlocked. Integrate cognition and empathy, then encode your transfer strategy.'
+  };
 
   function renderTelemetry() {
     telemetryEl.innerHTML = `
@@ -347,6 +370,31 @@ document.addEventListener('DOMContentLoaded', () => {
   function setPhase(phase) {
     gameState.phase = phase;
     renderPhase();
+  }
+
+  function resetGameState() {
+    gameState.phase = 'briefing';
+    gameState.iqScore = 48;
+    gameState.eqScore = 82;
+    gameState.progress = 0;
+    gameState.completedObjectives = new Set();
+    gameState.nbackSequence = [];
+    gameState.regulationBreaths = 0;
+
+    chatHistory.innerHTML = '';
+    appendChat('Architect-7', 'Session reboot acknowledged. We restart from Campaign Protocol 1: Mission Briefing.');
+    updateNPCState('neutral', 'Session reset and synchronized');
+    updateBars();
+    renderObjectives();
+    setPhase('briefing');
+  }
+
+  function setPhase(phase) {
+    gameState.phase = phase;
+    renderPhase();
+    if (architectProtocolResponses[phase]) {
+      appendChat('Architect-7', architectProtocolResponses[phase]);
+    }
   }
 
   async function handleChatSubmit() {
