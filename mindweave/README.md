@@ -8,9 +8,9 @@ Project MindWeave is an interactive, browser-based digital environment engineere
 
 - [Overview](#overview)
 - [Scientific Foundation](#scientific-foundation)
--[Architecture & Technologies](#architecture--technologies)
+- [Architecture & Technologies](#architecture--technologies)
 - [Project Structure](#project-structure)
--[Configuration (LLM API Setup)](#configuration-llm-api-setup)
+- [Configuration (LLM API Setup)](#configuration-llm-api-setup)
 - [Usage](#usage)
 - [License](#license)
 
