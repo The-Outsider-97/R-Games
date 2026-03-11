@@ -151,15 +151,19 @@ class MindweaveAI:
 
     def _build_event_envelope(self, payload: dict[str, Any]) -> dict[str, Any]:
         now = datetime.utcnow().isoformat()
+        task_type = payload.get("task_type", "cognitive_puzzle")
+        command = payload.get("command")
+        if command is None:
+            command = "execute_plan" if task_type == "cognitive_puzzle" else "chat"
         return {
             "session_id": payload.get("session_id", "local-session"),
             "player_id": payload.get("player_id", "player-unknown"),
-            "task_type": payload.get("task_type", "cognitive_puzzle"),
+            "task_type": task_type,
             "game_state_snapshot": payload.get("game_state_snapshot", payload.get("game_state", {})),
             "telemetry": payload.get("telemetry", {}),
             "safety_context": payload.get("safety_context", {}),
             "requested_action": payload.get("requested_action", "analyze"),
-            "command": payload.get("command", "execute_plan"),
+            "command": command,
             "timestamp": now,
         }
 
@@ -219,24 +223,27 @@ class MindweaveAI:
         return {"note": "evaluation method unavailable"}
 
     def _execute_language(self, event: dict[str, Any]) -> Any:
+        sanitized_event = dict(event)
+        if sanitized_event.get("command") == "execute_plan":
+            # Language tasks should not be forced through planning command handlers.
+            sanitized_event["command"] = "chat"
+
         execute_fn = getattr(self.language_agent, "execute", None)
         if callable(execute_fn):
-            try:
-                return execute_fn(event)
-            except ValueError as exc:
-                # Some LanguageAgent pipelines delegate to PlanningAgent which requires
-                # a command envelope (`execute_plan`). Retry once with a safe default.
-                if "Unsupported command for PlanningAgent" in str(exc) and not event.get("command"):
-                    patched_event = dict(event)
-                    patched_event["command"] = "execute_plan"
-                    return execute_fn(patched_event)
-                raise
+            result = execute_fn(sanitized_event)
+            if isinstance(result, dict) and result.get("status") == "AWAITING_PLAN":
+                return {
+                    "status": "fallback",
+                    "response": "I am present and listening. Share your objective, and I will architect the next move.",
+                    "reason": result.get("message", "language agent returned planning placeholder"),
+                }
+            return result
 
         # Progressive fallback to common language-agent contracts.
         for method_name in ("chat", "generate", "respond", "process"):
             language_fn = getattr(self.language_agent, method_name, None)
             if callable(language_fn):
-                return language_fn(event)
+                return language_fn(sanitized_event)
 
         return {"note": "language execution unavailable"}
 
@@ -325,9 +332,17 @@ class MindweaveAI:
         elif task_type == "cognitive_puzzle":
             response = "Cognitive route validated. Prioritize chunking, pattern rehearsal, and error correction loops."
             emotion, analysis, eq_delta = "thinking", "Executive Processing", 1
-        elif any(token in lower_text for token in ("understand", "help", "calm", "support", "hear")):
-            response = "Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack."
-            emotion, analysis, eq_delta = "calm", "Regulated / Stable", 5
+        elif any(token in lower_text for token in ("understand", "help", "calm", "support", "hear", "hi", "hello", "architect")):
+            planned_dialogue = self._execute_planning({**event, "task_type": "npc_dialogue", "command": "create_plan"})
+            response = self._extract_language_reply(
+                route_result,
+                "Architect link established. I can help you map intent, constraints, and next actions—what do you need solved?",
+            )
+            if isinstance(planned_dialogue, dict):
+                plan_steps = planned_dialogue.get("plan_steps")
+                if isinstance(plan_steps, int):
+                    response = f"{response} (planning ready: {plan_steps} step(s))"
+            emotion, analysis, eq_delta = "calm", "Architect Bridge / Engaged", 5
         elif any(token in lower_text for token in ("hurry", "now", "fix")):
             response = "Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!"
             emotion, analysis, eq_delta = "stress", "Agitated / Defensive", -15
