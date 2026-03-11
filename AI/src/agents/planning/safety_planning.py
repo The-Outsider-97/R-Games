@@ -521,16 +521,26 @@ class SafetyPlanning:
             if isinstance(task.start_time, (int, float)) and task.start_time <= 0:
                 task.start_time = current_time + 10
             elif isinstance(task.start_time, (int, float)) and task.start_time < current_time:
+                logger.warning(
+                    "Task %s start_time is in the past (%.3f < %.3f). Normalizing.",
+                    task.name,
+                    task.start_time,
+                    current_time,
+                )
                 task.start_time = current_time + 10
-                raise TemporalViolation(f"Task {task.name} starts in past")
 
             if isinstance(task.deadline, (int, float)) and task.deadline:
                 if task.deadline <= current_time:
                     # Legacy planners can still provide relative seconds instead of epoch time.
                     task.deadline = task.start_time + max(float(task.deadline), 300.0)
                 if task.deadline < task.start_time:
+                    logger.warning(
+                        "Task %s deadline precedes start_time (%.3f < %.3f). Normalizing.",
+                        task.name,
+                        task.deadline,
+                        task.start_time,
+                    )
                     task.deadline = task.start_time + 300  # Default 5min duration
-                    raise TemporalViolation(f"Task {task.name} has invalid deadline")
         
         return True
 
@@ -1509,4 +1519,3 @@ if __name__ == "__main__":
 
     printer.pretty("REPLAN", pipeline, "success" if pipeline else "error")
     print("\n=== Successfully Ran Safety Planning ===\n")
-
