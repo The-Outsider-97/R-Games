@@ -230,8 +230,65 @@ class GameRuntime:
 
 runtime = GameRuntime()
 
+def _infer_llm_provider(api_key: str) -> str:
+    """Infer provider from common API key prefixes."""
+    key = api_key.strip()
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    if key.startswith("gsk_"):
+        return "groq"
+    if key.startswith("sk-or-v1"):
+        return "openrouter"
+    if key.startswith("xai-"):
+        return "xai"
+    if key.startswith("AIza"):
+        return "gemini"
+    return "openai"
+
+
+def _build_validation_request(provider: str, api_key: str) -> tuple[str, dict[str, str]]:
+    """Build provider-specific validation URL and headers."""
+    key = api_key.strip()
+    if provider == "anthropic":
+        return (
+            os.getenv("MINDWEAVE_ANTHROPIC_VALIDATION_URL", "https://api.anthropic.com/v1/models"),
+            {
+                "x-api-key": key,
+                "anthropic-version": os.getenv("MINDWEAVE_ANTHROPIC_VERSION", "2023-06-01"),
+            },
+        )
+    if provider == "gemini":
+        return (
+            os.getenv(
+                "MINDWEAVE_GEMINI_VALIDATION_URL",
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={key}",
+            ),
+            {},
+        )
+    if provider == "groq":
+        return (
+            os.getenv("MINDWEAVE_GROQ_VALIDATION_URL", "https://api.groq.com/openai/v1/models"),
+            {"Authorization": f"Bearer {key}"},
+        )
+    if provider == "openrouter":
+        return (
+            os.getenv("MINDWEAVE_OPENROUTER_VALIDATION_URL", "https://openrouter.ai/api/v1/models"),
+            {"Authorization": f"Bearer {key}"},
+        )
+    if provider == "xai":
+        return (
+            os.getenv("MINDWEAVE_XAI_VALIDATION_URL", "https://api.x.ai/v1/models"),
+            {"Authorization": f"Bearer {key}"},
+        )
+
+    return (
+        os.getenv("MINDWEAVE_OPENAI_VALIDATION_URL", "https://api.openai.com/v1/models"),
+        {"Authorization": f"Bearer {key}"},
+    )
+
+
 def validate_mindweave_api_key(api_key: str) -> tuple[bool, str | None]:
-    """Validate the user-supplied Mindweave/OpenAI-compatible API key."""
+    """Validate the user-supplied LLM API key across multiple providers."""
     key = api_key.strip()
     if not key:
         return False, "API key is required"
@@ -239,17 +296,18 @@ def validate_mindweave_api_key(api_key: str) -> tuple[bool, str | None]:
     if len(key) < 20:
         return False, "API key appears too short"
 
-    validation_url = os.getenv("MINDWEAVE_VALIDATION_URL", "https://api.openai.com/v1/models")
+    provider = _infer_llm_provider(key)
+    validation_url, headers = _build_validation_request(provider, key)
     timeout_seconds = float(os.getenv("MINDWEAVE_VALIDATION_TIMEOUT", "8"))
 
     try:
         response = requests.get(
             validation_url,
-            headers={"Authorization": f"Bearer {key}"},
+            headers=headers,
             timeout=timeout_seconds,
         )
     except requests.RequestException as error:
-        logger.warning("Mindweave key validation request failed: %s", error)
+        logger.warning("Mindweave key validation request failed for provider=%s: %s", provider, error)
         return False, "Unable to reach key validation service"
 
     if response.status_code == HTTPStatus.OK:
@@ -259,12 +317,12 @@ def validate_mindweave_api_key(api_key: str) -> tuple[bool, str | None]:
         return False, "API key rejected by provider"
 
     logger.warning(
-        "Unexpected key validation response (%s): %s",
+        "Unexpected key validation response for provider=%s (%s): %s",
+        provider,
         response.status_code,
         response.text[:200],
     )
     return False, f"Validation failed with status {response.status_code}"
-
 
 class RequestHandler(SimpleHTTPRequestHandler):
     """Static file server + game launcher + unified AI APIs."""
