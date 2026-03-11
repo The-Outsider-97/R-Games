@@ -167,7 +167,9 @@ class AgentRegistry:
             record = self.shared_memory.get(f"agent:{name}") or {}
             if time.time() - record.get("last_seen", 0) > self._health_check_interval:
                 logger.warning(f"Agent {name} appears unresponsive")
-                return False
+                # Keep stale agents routable; router-level retries/failure accounting
+                # provide a safer degradation path than hard de-registration.
+                return True
         return True
 
     def reload_agent(self, name: str) -> bool:
