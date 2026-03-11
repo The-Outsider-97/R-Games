@@ -121,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           await validateMindweaveKey(storedKey);
         } catch (error) {
-          statusEl.textContent = "Stored Mindweave API key is invalid. Please update it.";
+          statusEl.textContent = "Stored Mindweave LLM API key is invalid. Please update it.";
           pendingGame = gameId;
           pendingFallbackLaunch = launchUrl;
           apiModal.classList.remove("hidden");
@@ -135,7 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Manual reset/update entrypoint for the Mindweave BYOK token
+  // Manual reset/update entrypoint for the Mindweave BYOK LLM token
   btnResetMindweaveApi.addEventListener("click", () => {
     pendingGame = "";
     pendingFallbackLaunch = "";
@@ -144,7 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
     apiKeyInput.value = localStorage.getItem("mindweave_llm_api_key") || "";
     apiKeyInput.focus();
 
-    statusEl.textContent = "Update your Mindweave API key and save to continue.";
+    statusEl.textContent = "Update your Mindweave LLM API key and save to continue.";
   });
 
   // Modal Cancel Button
@@ -171,7 +171,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await validateMindweaveKey(key);
       localStorage.setItem("mindweave_llm_api_key", key);
       apiModal.classList.add("hidden");
-      statusEl.textContent = "Mindweave API key saved in this browser (localStorage).";
+      statusEl.textContent = "Mindweave LLM API key saved in this browser (localStorage).";
 
       if (pendingGame && pendingFallbackLaunch) {
         selectGame(pendingGame, pendingFallbackLaunch);
