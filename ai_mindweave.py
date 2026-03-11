@@ -221,7 +221,31 @@ class MindweaveAI:
         execute_fn = getattr(self.language_agent, "execute", None)
         if callable(execute_fn):
             return execute_fn(event)
-        return {"note": "language execute unavailable"}
+
+        # Progressive fallback to common language-agent contracts.
+        for method_name in ("chat", "generate", "respond", "process"):
+            language_fn = getattr(self.language_agent, method_name, None)
+            if callable(language_fn):
+                return language_fn(event)
+
+        return {"note": "language execution unavailable"}
+
+    def _extract_language_reply(self, route_result: dict[str, Any], fallback_message: str) -> str:
+        if route_result.get("status") != "routed":
+            return fallback_message
+
+        result = route_result.get("result", {})
+        if isinstance(result, dict):
+            payload = result.get("result", result)
+            if isinstance(payload, str) and payload.strip():
+                return payload.strip()
+            if isinstance(payload, dict):
+                for key in ("reply", "response", "text", "message", "data"):
+                    value = payload.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+
+        return fallback_message
 
     def _execute_reasoning(self, event: dict[str, Any]) -> Any:
         reason_fn = getattr(self.reasoning_agent, "infer", None)
@@ -269,7 +293,7 @@ class MindweaveAI:
             {
                 "session_id": payload.get("session_id"),
                 "player_id": payload.get("player_id"),
-                "task_type": "npc_dialogue",
+                "task_type": payload.get("task_type", "npc_dialogue"),
                 "game_state_snapshot": payload.get("game_state_snapshot", {}),
                 "telemetry": payload.get("telemetry", {}),
                 "safety_context": payload.get("safety_context", {}),
@@ -279,7 +303,19 @@ class MindweaveAI:
         route_result = self._route_event(event)
 
         lower_text = message.lower()
-        if any(token in lower_text for token in ("understand", "help", "calm")):
+        task_type = event.get("task_type", "npc_dialogue")
+
+        if task_type == "debrief_reflection":
+            if any(token in lower_text for token in ("strategy", "reflect", "transfer", "real-world", "collaboration")):
+                response = "Debrief accepted. You demonstrated metacognitive transfer and emotional regulation insight."
+                emotion, analysis, eq_delta = "calm", "Reflective / Integrated", 4
+            else:
+                response = "Debrief received, but include explicit strategy and transfer language for stronger consolidation."
+                emotion, analysis, eq_delta = "neutral", "Reflection Shallow", 0
+        elif task_type == "cognitive_puzzle":
+            response = "Cognitive route validated. Prioritize chunking, pattern rehearsal, and error correction loops."
+            emotion, analysis, eq_delta = "thinking", "Executive Processing", 1
+        elif any(token in lower_text for token in ("understand", "help", "calm", "support", "hear")):
             response = "Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack."
             emotion, analysis, eq_delta = "calm", "Regulated / Stable", 5
         elif any(token in lower_text for token in ("hurry", "now", "fix")):
