@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const phaseContent = document.getElementById('phase-content');
   const phaseButtons = Array.from(document.querySelectorAll('.phase-btn'));
   const telemetryEl = document.getElementById('telemetry');
+  const finalScoreEl = document.getElementById('final-score');
+  const protocolScoreListEl = document.getElementById('protocol-score-list');
   const objectiveLog = document.getElementById('objective-log');
   const btnHome = document.getElementById('btn-home');
   const btnSettings = document.getElementById('btn-settings');
@@ -93,7 +95,25 @@ document.addEventListener('DOMContentLoaded', () => {
     nbackSequence: [],
     resourceTarget: 14,
     regulationBreaths: 0,
+    challengeAttempts: {
+      nback_clear: { count: 0, locked: false },
+      resource_clear: { count: 0, locked: false },
+      logic_clear: { count: 0, locked: false },
+      micro_clear: { count: 0, locked: false },
+    },
+    protocolScore: {
+      iq: 0,
+      eq: 0,
+      debrief: 0,
+    },
   };
+
+  const protocolWeights = {
+    iq: 45,
+    eq: 35,
+    debrief: 20,
+  };
+
 
   if (!apiKey) {
     apiStatusEl.textContent = 'ERROR: No LLM Key detected. Neural link severed.';
@@ -366,6 +386,64 @@ document.addEventListener('DOMContentLoaded', () => {
     eqSyncBar.style.backgroundColor = gameState.eqScore < 40 ? 'var(--traffic-red)' : gameState.eqScore < 70 ? '#eab308' : '#10b981';
   }
 
+  function calculateAttemptMultiplier(attemptCount) {
+    if (attemptCount <= 1) return 1;
+    if (attemptCount === 2) return 0.65;
+    return 0.35;
+  }
+
+  function registerChallengeAttempt(challengeId, onSuccess, onFailure) {
+    const challenge = gameState.challengeAttempts[challengeId];
+    if (!challenge) return false;
+
+    if (challenge.locked) {
+      appendChat('SYSTEM', 'Protocol already resolved. Additional submissions are ignored.', 'text-slate-400');
+      playSfx('error');
+      return false;
+    }
+
+    if (challenge.count >= 3) {
+      appendChat('SYSTEM', 'Maximum attempts reached for this protocol.', 'text-yellow-400');
+      playSfx('error');
+      return false;
+    }
+
+    challenge.count += 1;
+    const attemptCount = challenge.count;
+
+    if (onSuccess(attemptCount)) {
+      challenge.locked = true;
+      return true;
+    }
+
+    if (attemptCount >= 3) {
+      challenge.locked = true;
+      appendChat('SYSTEM', 'Protocol locked after 3 attempts.', 'text-yellow-400');
+      playSfx('error');
+    } else if (onFailure) {
+      onFailure(attemptCount);
+    }
+
+    return false;
+  }
+
+  function awardProtocolScore(protocol, basePoints, attemptCount = 1) {
+    const multiplier = calculateAttemptMultiplier(attemptCount);
+    const weightedScore = Math.round(basePoints * multiplier);
+    gameState.protocolScore[protocol] = Math.min(protocolWeights[protocol], gameState.protocolScore[protocol] + weightedScore);
+    renderFinalScore();
+  }
+
+  function renderFinalScore() {
+    const totalScore = gameState.protocolScore.iq + gameState.protocolScore.eq + gameState.protocolScore.debrief;
+    finalScoreEl.textContent = `${totalScore} / 100`;
+    protocolScoreListEl.innerHTML = [
+      `IQ Protocol: ${gameState.protocolScore.iq}/${protocolWeights.iq}`,
+      `EQ Protocol: ${gameState.protocolScore.eq}/${protocolWeights.eq}`,
+      `Debrief Protocol: ${gameState.protocolScore.debrief}/${protocolWeights.debrief}`,
+    ].map((line) => `<div>${line}</div>`).join('');
+  }
+
   function appendChat(sender, message, colorClass = 'text-white', voicePath = null) {
     const div = document.createElement('div');
     const senderColor = sender === 'Weaver' ? 'text-[var(--traffic-red)]' : 'text-[var(--neural-blue)]';
@@ -477,49 +555,73 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('nback-submit').onclick = () => {
         const guess = Number(document.getElementById('nback-input').value);
         const expected = gameState.nbackSequence[gameState.nbackSequence.length - 3];
-        if (guess === expected) {
-          gameState.iqScore = Math.min(100, gameState.iqScore + 12);
-          markObjective('nback_clear', 'Dual N-Back solved');
-          appendChat('SYSTEM', 'Working memory lock acquired.', 'text-emerald-400');
-          playSfx('correct');
-        } else {
-          gameState.iqScore = Math.max(0, gameState.iqScore - 6);
-          appendChat('SYSTEM', 'N-back mismatch. Retry with pattern focus.', 'text-yellow-400');
-          playSfx('wrong');
-        }
-        updateBars();
+        registerChallengeAttempt(
+          'nback_clear',
+          (attemptCount) => {
+            if (guess !== expected) return false;
+            gameState.iqScore = Math.min(100, gameState.iqScore + 12);
+            awardProtocolScore('iq', 15, attemptCount);
+            markObjective('nback_clear', 'Dual N-Back solved');
+            appendChat('SYSTEM', `Working memory lock acquired on attempt ${attemptCount}.`, 'text-emerald-400');
+            playSfx('correct');
+            updateBars();
+            return true;
+          },
+          () => {
+            gameState.iqScore = Math.max(0, gameState.iqScore - 6);
+            appendChat('SYSTEM', 'N-back mismatch. Retry with pattern focus.', 'text-yellow-400');
+            playSfx('wrong');
+            updateBars();
+          }
+        );
       };
 
       document.getElementById('resource-submit').onclick = () => {
         const a = Number(document.getElementById('resource-a').value);
         const b = Number(document.getElementById('resource-b').value);
-        if (a + b === gameState.resourceTarget) {
-          gameState.iqScore = Math.min(100, gameState.iqScore + 10);
-          markObjective('resource_clear', 'Resource routing stable');
-          playSfx('correct');
-        } else {
-          gameState.iqScore = Math.max(0, gameState.iqScore - 4);
-          appendChat('SYSTEM', 'Supply chain imbalance detected.', 'text-yellow-400');
-          playSfx('wrong');
-        }
-        updateBars();
+        registerChallengeAttempt(
+          'resource_clear',
+          (attemptCount) => {
+            if (a + b !== gameState.resourceTarget) return false;
+            gameState.iqScore = Math.min(100, gameState.iqScore + 10);
+            awardProtocolScore('iq', 15, attemptCount);
+            markObjective('resource_clear', 'Resource routing stable');
+            playSfx('correct');
+            updateBars();
+            return true;
+          },
+          () => {
+            gameState.iqScore = Math.max(0, gameState.iqScore - 4);
+            appendChat('SYSTEM', 'Supply chain imbalance detected.', 'text-yellow-400');
+            playSfx('wrong');
+            updateBars();
+          }
+        );
       };
 
       document.getElementById('logic-submit').onclick = () => {
         const output = document.getElementById('logic-choice').value;
-        if (output === 'true') {
-          gameState.iqScore = Math.min(100, gameState.iqScore + 10);
-          markObjective('logic_clear', 'Logic gate repaired');
-          playSfx('correct');
-        } else {
-          gameState.iqScore = Math.max(0, gameState.iqScore - 4);
-          appendChat('SYSTEM', 'Gate output incorrect.', 'text-yellow-400');
-          playSfx('wrong');
-        }
-        if (gameState.completedObjectives.has('nback_clear') && gameState.completedObjectives.has('resource_clear') && gameState.completedObjectives.has('logic_clear')) {
-          setPhase('eq');
-        }
-        updateBars();
+        registerChallengeAttempt(
+          'logic_clear',
+          (attemptCount) => {
+            if (output !== 'true') return false;
+            gameState.iqScore = Math.min(100, gameState.iqScore + 10);
+            awardProtocolScore('iq', 15, attemptCount);
+            markObjective('logic_clear', 'Logic gate repaired');
+            playSfx('correct');
+            if (gameState.completedObjectives.has('nback_clear') && gameState.completedObjectives.has('resource_clear') && gameState.completedObjectives.has('logic_clear')) {
+              setPhase('eq');
+            }
+            updateBars();
+            return true;
+          },
+          () => {
+            gameState.iqScore = Math.max(0, gameState.iqScore - 4);
+            appendChat('SYSTEM', 'Gate output incorrect.', 'text-yellow-400');
+            playSfx('wrong');
+            updateBars();
+          }
+        );
       };
     }
 
@@ -545,19 +647,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
       document.getElementById('micro-submit').onclick = () => {
         const value = document.getElementById('micro-choice').value;
-        if (value === 'fear') {
-          gameState.eqScore = Math.min(100, gameState.eqScore + 8);
-          markObjective('micro_clear', 'Micro-expression recognized');
-          updateNPCState('calm', 'Validated and understood');
-          appendChat('Architect-7', 'Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack.', 'text-white', audioLibrary.voice.calmResponse);
-          playSfx('correct');
-        } else {
-          gameState.eqScore = Math.max(0, gameState.eqScore - 8);
-          updateNPCState('stress', 'Misread social cue');
-          appendChat('Architect-7', 'Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!', 'text-white', audioLibrary.voice.stressResponse);
-          playSfx('wrong');
-        }
-        updateBars();
+        registerChallengeAttempt(
+          'micro_clear',
+          (attemptCount) => {
+            if (value !== 'fear') return false;
+            gameState.eqScore = Math.min(100, gameState.eqScore + 8);
+            awardProtocolScore('eq', 20, attemptCount);
+            markObjective('micro_clear', 'Micro-expression recognized');
+            updateNPCState('calm', 'Validated and understood');
+            appendChat('Architect-7', 'Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack.', 'text-white', audioLibrary.voice.calmResponse);
+            playSfx('correct');
+            updateBars();
+            return true;
+          },
+          () => {
+            gameState.eqScore = Math.max(0, gameState.eqScore - 8);
+            updateNPCState('stress', 'Misread social cue');
+            appendChat('Architect-7', 'Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!', 'text-white', audioLibrary.voice.stressResponse);
+            playSfx('wrong');
+            updateBars();
+          }
+        );
       };
     }
 
@@ -578,6 +688,8 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
         markObjective('debrief_submit', 'Debrief submitted');
+        gameState.protocolScore.debrief = protocolWeights.debrief;
+        renderFinalScore();
         await sendTaskMessage(`Debrief reflection: ${reflection}`, 'debrief_reflection');
         appendChat('SYSTEM', 'Campaign loop complete. Far-transfer reinforcement logged.', 'text-emerald-400');
       };
@@ -594,6 +706,14 @@ document.addEventListener('DOMContentLoaded', () => {
     gameState.completedObjectives = new Set();
     gameState.nbackSequence = [];
     gameState.regulationBreaths = 0;
+    gameState.challengeAttempts = {
+      nback_clear: { count: 0, locked: false },
+      resource_clear: { count: 0, locked: false },
+      logic_clear: { count: 0, locked: false },
+      micro_clear: { count: 0, locked: false },
+    };
+    gameState.protocolScore = { iq: 0, eq: 0, debrief: 0 };
+
 
     chatHistory.innerHTML = '';
     appendChat('Architect-7', 'Session reboot acknowledged. We restart from Campaign Protocol 1: Mission Briefing.');
@@ -643,6 +763,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-reset-iq').addEventListener('click', () => {
     gameState.nbackSequence = [];
+    gameState.challengeAttempts.nback_clear = { count: 0, locked: false };
+    gameState.challengeAttempts.resource_clear = { count: 0, locked: false };
+    gameState.challengeAttempts.logic_clear = { count: 0, locked: false };
     gameState.iqScore = 48;
     updateBars();
     if (gameState.phase === 'iq') renderPhase();
@@ -653,6 +776,9 @@ document.addEventListener('DOMContentLoaded', () => {
     gameState.eqScore = Math.min(100, gameState.eqScore + 3);
     appendChat('SYSTEM', `Breath cycle ${gameState.regulationBreaths}/4 completed.`, 'text-emerald-400');
     if (gameState.regulationBreaths >= 4) {
+      gameState.regulationBreaths = 4;
+      gameState.protocolScore.eq = Math.min(protocolWeights.eq, gameState.protocolScore.eq + 15);
+      renderFinalScore();
       markObjective('regulation_clear', 'Biometric regulation cycle completed');
       if (gameState.phase === 'eq' && gameState.completedObjectives.has('micro_clear')) setPhase('debrief');
     }
@@ -733,6 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateBars();
   renderObjectives();
+  renderFinalScore();
   setPhase('briefing', { skipProtocolVoice: true });
 
   window.addEventListener('resize', () => {
