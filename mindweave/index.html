@@ -27,79 +27,83 @@
   <div class="scanlines z-10 pointer-events-none"></div>
 
   <!-- UI Overlay -->
-  <main class="relative z-20 w-full h-screen flex flex-col justify-between p-6 pointer-events-none">
-    
-    <!-- Top HUD -->
-    <header class="flex justify-between items-start pointer-events-auto">
-      <div class="glass-panel p-4 rounded-xl border border-white/10 w-64">
-        <h1 class="text-xl font-bold text-[var(--traffic-red)] tracking-widest uppercase text-shadow">MindWeave</h1>
-        <p class="text-xs text-slate-400 font-mono mt-1">Status: <span id="api-status" class="text-yellow-400">Verifying Uplink...</span></p>
-        
-        <div class="mt-4 space-y-2">
+  <main class="relative z-20 w-full h-screen p-4 lg:p-6 pointer-events-none">
+    <div class="h-full grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <section class="lg:col-span-3 flex flex-col gap-4 pointer-events-auto">
+        <div class="glass-panel p-4 rounded-xl border border-white/10">
+          <h1 class="text-xl font-bold text-[var(--traffic-red)] tracking-widest uppercase text-shadow">MindWeave</h1>
+          <p class="text-xs text-slate-400 font-mono mt-1">Status: <span id="api-status" class="text-yellow-400">Verifying Uplink...</span></p>
+          <div class="mt-3 text-[11px] text-slate-400 font-mono space-y-1">
+            <p>Role: Weaver Diplomat-Engineer</p>
+            <p>Mission: Rebuild the Fractured Grid</p>
+          </div>
+          <div class="mt-4 space-y-2">
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 uppercase tracking-widest mb-1"><span>IQ Load</span><span id="iq-value">48%</span></div>
+              <div class="w-full bg-black/50 h-1.5 rounded-full overflow-hidden"><div id="iq-bar" class="bg-[var(--neural-blue)] h-full w-[48%] shadow-glow-blue transition-all duration-500"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 uppercase tracking-widest mb-1"><span>EQ Sync</span><span id="eq-sync-value">82%</span></div>
+              <div class="w-full bg-black/50 h-1.5 rounded-full overflow-hidden"><div id="eq-sync-bar" class="bg-[var(--traffic-red)] h-full w-[82%] shadow-glow-red transition-all duration-500"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 uppercase tracking-widest mb-1"><span>Mission Completion</span><span id="progress-value">0%</span></div>
+              <div class="w-full bg-black/50 h-1.5 rounded-full overflow-hidden"><div id="progress-bar" class="bg-emerald-400 h-full w-0 transition-all duration-500"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-panel p-4 rounded-xl border border-white/10 flex-1 overflow-auto scrollbar-hide">
+          <h2 class="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3">Campaign Protocols</h2>
+          <div class="space-y-2 text-xs font-mono" id="phase-list">
+            <button data-phase="briefing" class="phase-btn phase-active">1. Mission Briefing</button>
+            <button data-phase="iq" class="phase-btn">2. IQ Systems Repair</button>
+            <button data-phase="eq" class="phase-btn">3. EQ Diplomacy & Regulation</button>
+            <button data-phase="debrief" class="phase-btn">4. Metacognitive Debrief</button>
+          </div>
+          <div class="text-[10px] text-slate-400 mt-4 space-y-1" id="objective-log"></div>
+        </div>
+
+        <button id="btn-exit" class="glass-panel px-4 py-2 rounded-lg border border-white/10 text-xs tracking-widest uppercase hover:bg-white/10 transition-colors pointer-events-auto">Abort Session</button>
+      </section>
+
+      <section class="lg:col-span-6 pointer-events-auto flex flex-col gap-4">
+        <div class="glass-panel border border-white/10 rounded-2xl h-2/5 flex flex-col overflow-hidden">
+          <div class="bg-black/40 px-4 py-2 border-b border-white/10 flex justify-between items-center">
+            <span class="text-xs font-mono text-[var(--neural-blue)] uppercase tracking-wider">Entity: Architect-7</span>
+            <span id="emotion-indicator" class="text-[10px] uppercase text-slate-400 bg-white/5 px-2 py-1 rounded">Analysis: Neutral</span>
+          </div>
+          <div id="chat-history" class="flex-1 p-4 overflow-y-auto font-mono text-sm space-y-4 scrollbar-hide"></div>
+          <div class="p-3 bg-black/40 border-t border-white/10 flex gap-2">
+            <input type="text" id="player-input" class="flex-1 bg-black/50 border border-slate-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-[var(--traffic-red)] transition-colors text-white placeholder-slate-600" placeholder="Analyze, regulate, and respond..." autocomplete="off" disabled>
+            <button id="btn-send" class="bg-[var(--traffic-red)] text-white px-4 py-2 rounded font-mono text-sm uppercase tracking-wider hover:bg-red-600 transition-colors disabled:opacity-50" disabled>Transmit</button>
+          </div>
+        </div>
+
+        <div class="glass-panel border border-white/10 rounded-2xl flex-1 p-4 overflow-y-auto scrollbar-hide">
+          <h3 id="phase-title" class="text-sm font-mono uppercase tracking-widest text-slate-300 mb-3">Mission Briefing</h3>
+          <div id="phase-content" class="text-sm text-slate-200"></div>
+        </div>
+      </section>
+
+      <section class="lg:col-span-3 pointer-events-auto">
+        <div class="glass-panel p-4 rounded-2xl border border-white/10 h-full flex flex-col gap-4 overflow-y-auto scrollbar-hide">
           <div>
-            <div class="flex justify-between text-[10px] text-slate-400 uppercase tracking-widest mb-1">
-              <span>Cognitive Load (IQ)</span>
-              <span>45%</span>
-            </div>
-            <div class="w-full bg-black/50 h-1.5 rounded-full overflow-hidden">
-              <div class="bg-[var(--neural-blue)] h-full w-[45%] shadow-glow-blue"></div>
-            </div>
+            <h3 class="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3 border-b border-white/10 pb-2">Active Protocols</h3>
+            <button id="btn-empathy-ping" class="protocol-btn">Active Listening Ping <span class="text-[var(--traffic-red)]">[EQ]</span></button>
+            <button id="btn-reset-iq" class="protocol-btn">Reset IQ Trials <span class="text-[var(--neural-blue)]">[IQ]</span></button>
+            <button id="btn-regulate" class="protocol-btn">Regulation Pulse <span class="text-emerald-400">[BIO]</span></button>
           </div>
           <div>
-            <div class="flex justify-between text-[10px] text-slate-400 uppercase tracking-widest mb-1">
-              <span>Empathy Sync (EQ)</span>
-              <span id="eq-sync-value">82%</span>
-            </div>
-            <div class="w-full bg-black/50 h-1.5 rounded-full overflow-hidden">
-              <div id="eq-sync-bar" class="bg-[var(--traffic-red)] h-full w-[82%] shadow-glow-red transition-all duration-500"></div>
-            </div>
+            <h3 class="text-xs font-mono text-slate-400 uppercase tracking-widest mb-2">Telemetry</h3>
+            <div id="telemetry" class="text-[11px] font-mono text-slate-400 space-y-1"></div>
+          </div>
+          <div class="text-[9px] text-slate-500 uppercase tracking-widest text-center mt-auto">
+            Project MindWeave v1.1.0<br>Full Training Loop Enabled
           </div>
         </div>
-      </div>
-
-      <button id="btn-exit" class="glass-panel px-4 py-2 rounded-lg border border-white/10 text-xs tracking-widest uppercase hover:bg-white/10 transition-colors">
-        Abort Session
-      </button>
-    </header>
-
-    <!-- Bottom HUD (Dialogue & Metacognition) -->
-    <footer class="flex gap-6 items-end pointer-events-auto max-w-5xl mx-auto w-full">
-      
-      <!-- NPC Dialogue Box -->
-      <div class="glass-panel border border-white/10 rounded-2xl flex-1 flex flex-col overflow-hidden h-64 shadow-2xl backdrop-blur-md bg-black/60">
-        <div class="bg-black/40 px-4 py-2 border-b border-white/10 flex justify-between items-center">
-          <span class="text-xs font-mono text-[var(--neural-blue)] uppercase tracking-wider">Entity: Architect-7</span>
-          <span id="emotion-indicator" class="text-[10px] uppercase text-slate-400 bg-white/5 px-2 py-1 rounded">Analysis: Neutral</span>
-        </div>
-        
-        <div id="chat-history" class="flex-1 p-4 overflow-y-auto font-mono text-sm space-y-4 scrollbar-hide">
-          <div class="text-slate-300">
-            <span class="text-[var(--neural-blue)]">> Architect-7:</span> Weaver, the grid is deteriorating. I perceive your presence, but my subsystems are fractured. Can you stabilize the logic gates before the emotional cascade?
-          </div>
-        </div>
-
-        <div class="p-3 bg-black/40 border-t border-white/10 flex gap-2">
-          <input type="text" id="player-input" class="flex-1 bg-black/50 border border-slate-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-[var(--traffic-red)] transition-colors text-white placeholder-slate-600" placeholder="Analyze micro-expressions and respond empathetically..." autocomplete="off" disabled>
-          <button id="btn-send" class="bg-[var(--traffic-red)] text-white px-4 py-2 rounded font-mono text-sm uppercase tracking-wider hover:bg-red-600 transition-colors disabled:opacity-50" disabled>Transmit</button>
-        </div>
-      </div>
-
-      <!-- Action Panel -->
-      <div class="glass-panel p-4 rounded-2xl border border-white/10 w-64 bg-black/60 backdrop-blur-md h-64 flex flex-col justify-between">
-        <div>
-          <h3 class="text-xs font-mono text-slate-400 uppercase tracking-widest mb-3 border-b border-white/10 pb-2">Active Protocols</h3>
-          <button class="w-full text-left px-3 py-2 rounded bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/20 transition-all text-xs font-mono mb-2 flex justify-between">
-            <span>Scan Subroutines</span> <span class="text-[var(--neural-blue)]">[IQ]</span>
-          </button>
-          <button id="btn-empathy-ping" class="w-full text-left px-3 py-2 rounded bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/20 transition-all text-xs font-mono flex justify-between">
-            <span>Active Listening</span> <span class="text-[var(--traffic-red)]">[EQ]</span>
-          </button>
-        </div>
-        <div class="text-[9px] text-slate-500 uppercase tracking-widest text-center mt-4">
-          Project MindWeave v1.0.4<br>Neural Engine Online
-        </div>
-      </div>
-    </footer>
+      </section>
+    </div>
   </main>
 
   <script type="module" src="src/main.js"></script>
