@@ -18,70 +18,82 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Glassmorphism Panel */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.4);
+  background: rgba(15, 23, 42, 0.5);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
 }
 
-/* Neon Text Shadows */
-.text-shadow {
-  text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
-}
+.text-shadow { text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+.shadow-glow-blue { box-shadow: 0 0 8px var(--neural-blue); }
+.shadow-glow-red { box-shadow: 0 0 8px var(--traffic-red); }
 
-/* Glow effects for HUD bars */
-.shadow-glow-blue {
-  box-shadow: 0 0 8px var(--neural-blue);
-}
-.shadow-glow-red {
-  box-shadow: 0 0 8px var(--traffic-red);
-}
-
-/* CRT Scanline Effect */
 .scanlines {
   position: absolute;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0),
-    rgba(255, 255, 255, 0) 50%,
-    rgba(0, 0, 0, 0.1) 50%,
-    rgba(0, 0, 0, 0.1)
-  );
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.1) 50%, rgba(0, 0, 0, 0.1));
   background-size: 100% 4px;
   opacity: 0.3;
   z-index: 10;
   pointer-events: none;
 }
 
-/* Custom Scrollbar for Chat Box */
-.scrollbar-hide::-webkit-scrollbar {
-  width: 6px;
+.scrollbar-hide::-webkit-scrollbar { width: 6px; }
+.scrollbar-hide::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+.scrollbar-hide::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+
+.phase-btn,
+.protocol-btn {
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  font-size: 0.72rem;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  transition: all 0.2s ease;
+  display: flex;
+  justify-content: space-between;
 }
-.scrollbar-hide::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-}
-.scrollbar-hide::-webkit-scrollbar-thumb {
+
+.phase-btn:hover,
+.protocol-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-.scrollbar-hide::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
-/* Typwriter animation cursor */
-.typing-cursor::after {
-  content: '█';
-  animation: blink 1s step-start infinite;
-  color: var(--neural-blue);
-  margin-left: 4px;
+.phase-active {
+  border-color: rgba(56, 189, 248, 0.8);
+  color: #e2e8f0;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
-@keyframes blink {
-  50% { opacity: 0; }
+.mindweave-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.4);
+}
+
+.mindweave-input {
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0.4rem;
+  color: #e2e8f0;
+  padding: 0.35rem 0.5rem;
+}
+
+.mindweave-action {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.72rem;
+  font-family: 'JetBrains Mono', monospace;
 }
