@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const apiKey = localStorage.getItem('mindweave_llm_api_key');
+  const responsesPath = '/mindweave/templates/responses.JSON';
   const apiStatusEl = document.getElementById('api-status');
   const chatInput = document.getElementById('player-input');
   const sendBtn = document.getElementById('btn-send');
@@ -43,23 +44,23 @@ document.addEventListener('DOMContentLoaded', () => {
       wrong: '../src/audio/wrong.mp3',
     },
     voice: {
-      briefing: '../src/audio/A7_01_mission_briefing.m4a',
+      briefing: '../src/audio/A7_01a_mission_briefing.m4a',
       briefingAcknowledge: '../src/audio/A7_02_briefing_acknowledge.m4a',
-      protocol1: '../src/audio/A7_campaign_protocol_01.m4a',
-      protocol2: '../src/audio/A7_campaign_protocol_02.m4a',
-      protocol3: '../src/audio/A7_campaign_protocol_03.m4a',
-      protocol4: '../src/audio/A7_campaign_protocol_04.m4a',
+      protocol1: '../src/audio/A7_campaign_protocol_01a.m4a',
+      protocol2: '../src/audio/A7_campaign_protocol_02a.m4a',
+      protocol3: '../src/audio/A7_campaign_protocol_03a.m4a',
+      protocol4: '../src/audio/A7_campaign_protocol_04a.m4a',
       chatError: '../src/audio/A7_chat_error.m4a',
-      calmResponse: '../src/audio/A7_calm_response.m4a',
-      stressResponse: '../src/audio/A7_stress_response.m4a',
-      thinkingResponse: '../src/audio/A7_thinking_response.m4a',
-      ambiguousResponse: '../src/audio/A7_ambiguous_chat.mp4',
+      calmResponse: '../src/audio/A7_calm_response_a.m4a',
+      stressResponse: '../src/audio/A7_stress_response_a.m4a',
+      thinkingResponse: '../src/audio/A7_thinking_response_a.m4a',
+      ambiguousResponse: '../src/audio/A7_chat_error_a.mp4',
       debriefReceived: '../src/audio/A7_final_debrief.m4a',
     }
   };
 
   const audioState = {
-    bgmVolume: 0.6,
+    bgmVolume: 0.25,
     sfxVolume: 0.75,
     voiceVolume: 1,
     bgmMuted: false,
@@ -115,17 +116,11 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
 
-  if (!apiKey) {
-    apiStatusEl.textContent = 'ERROR: No LLM Key detected. Neural link severed.';
-    apiStatusEl.classList.replace('text-yellow-400', 'text-red-500');
-    appendChat('SYSTEM', 'CRITICAL ERROR: API key missing. Return to launcher and configure BYOK credentials.', 'text-red-500');
-  } else {
-    apiStatusEl.textContent = 'Uplink Secure. LLM Active.';
-    apiStatusEl.classList.replace('text-yellow-400', 'text-green-400');
-    chatInput.disabled = false;
-    sendBtn.disabled = false;
-    chatInput.focus();
-  }
+  apiStatusEl.textContent = apiKey ? 'Uplink Secure. AI Backend + Key Active.' : 'Uplink Secure. AI Backend Active (no external key).';
+  apiStatusEl.classList.replace('text-yellow-400', 'text-green-400');
+  chatInput.disabled = false;
+  sendBtn.disabled = false;
+  chatInput.focus();
 
   btnHome.addEventListener('click', () => {
     window.location.href = '/index.html';
@@ -194,12 +189,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const emotionColors = { neutral: 0x38bdf8, stress: 0xef4444, calm: 0x10b981, thinking: 0xa855f7 };
   let currentEmotion = 'neutral';
 
-  const architectProtocolResponses = {
-    briefing: { text: 'Campaign Protocol 1 engaged. Confirm mission parameters and we will synchronize the civic lattice.', voice: audioLibrary.voice.protocol1 },
-    iq: { text: 'Campaign Protocol 2 online. Precision first, Weaver—stability emerges from correct sequence decisions.', voice: audioLibrary.voice.protocol2 },
-    eq: { text: 'Campaign Protocol 3 active. Emotional calibration in progress. Lead with validation, then coordinate recovery.', voice: audioLibrary.voice.protocol3 },
-    debrief: { text: 'Campaign Protocol 4 unlocked. Integrate cognition and empathy, then encode your transfer strategy.', voice: audioLibrary.voice.protocol4 }
-  };
+  let responseTemplates = {};
+
+  async function loadResponseTemplates() {
+    try {
+      const response = await fetch(responsesPath);
+      if (!response.ok) throw new Error('Unable to load Architect-7 response templates');
+      responseTemplates = await response.json();
+    } catch (error) {
+      appendChat('SYSTEM', `Response template load failed: ${error.message}`, 'text-yellow-400');
+      responseTemplates = {};
+    }
+  }
+
+  function pickResponse(group, fallbackText, fallbackVoice = null) {
+    const options = Array.isArray(responseTemplates[group]) ? responseTemplates[group] : [];
+    if (!options.length) return { text: fallbackText, voice: fallbackVoice };
+    const choice = options[Math.floor(Math.random() * options.length)] || {};
+    return {
+      text: choice.text || fallbackText,
+      voice: choice.voice || fallbackVoice,
+    };
+  }
 
   function resolveAudioPath(path) {
     return path;
@@ -465,11 +476,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendTaskMessage(message, taskType = 'npc_dialogue') {
-    if (!apiKey) return;
     try {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Mindweave-API-Key': apiKey },
+        headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-Mindweave-API-Key': apiKey } : {}) },
         body: JSON.stringify({
           session_id: gameState.activeSessionId,
           player_id: 'weaver',
@@ -485,15 +495,16 @@ document.addEventListener('DOMContentLoaded', () => {
       updateBars();
       const reply = payload.reply || 'No response generated.';
       const normalizedReply = reply.toLowerCase();
-      let replyVoice = audioLibrary.voice.calmResponse;
-      if (normalizedReply.includes('ambiguous')) replyVoice = audioLibrary.voice.ambiguousResponse;
-      if (normalizedReply.includes('stress') || normalizedReply.includes('unstable')) replyVoice = audioLibrary.voice.stressResponse;
+      let replyVoice = payload.voice || audioLibrary.voice.calmResponse;
+      if (normalizedReply.includes('ambiguous')) replyVoice = payload.voice || audioLibrary.voice.ambiguousResponse;
+      if (normalizedReply.includes('stress') || normalizedReply.includes('unstable')) replyVoice = payload.voice || audioLibrary.voice.stressResponse;
       appendChat('Architect-7', reply, 'text-white', replyVoice);
       playSfx('correct');
     } catch (error) {
       appendChat('SYSTEM', `Backend sync failed: ${error.message}`, 'text-red-500');
-      appendChat('Architect-7', 'Input acknowledged. However, the emotional context is ambiguous. Please recalibrate your active listening protocols.', 'text-slate-200');
-      await enqueueVoice(audioLibrary.voice.chatError, { priority: voicePriority.sequence, clearQueue: true, interrupt: true });
+      const errorResponse = pickResponse('chat_error', 'Input acknowledged. However, the emotional context is ambiguous. Please recalibrate your active listening protocols.', audioLibrary.voice.chatError);
+      appendChat('Architect-7', errorResponse.text, 'text-slate-200');
+      await enqueueVoice(errorResponse.voice || audioLibrary.voice.chatError, { priority: voicePriority.sequence, clearQueue: true, interrupt: true });
       await enqueueVoice(audioLibrary.voice.ambiguousResponse, { priority: voicePriority.sequence });
       playSfx('error');
       updateNPCState('stress', 'Link Unstable');
@@ -518,7 +529,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
       document.getElementById('start-campaign').onclick = async () => {
         markObjective('briefing_read', 'Briefing acknowledged');
-        appendChat('Architect-7', 'Acknowledged. Mission brief locked.', 'text-white');
+        { const ack = pickResponse('briefing', 'Acknowledged. Mission brief locked.', audioLibrary.voice.briefingAcknowledge); appendChat('Architect-7', ack.text, 'text-white', ack.voice); }
         await enqueueVoice(audioLibrary.voice.briefingAcknowledge, { priority: voicePriority.sequence, clearQueue: true, interrupt: true, delayMs: 500 });
         setPhase('iq', { skipProtocolVoice: true });
         enqueueVoice(audioLibrary.voice.protocol2, { priority: voicePriority.sequence });
@@ -655,7 +666,7 @@ document.addEventListener('DOMContentLoaded', () => {
             awardProtocolScore('eq', 20, attemptCount);
             markObjective('micro_clear', 'Micro-expression recognized');
             updateNPCState('calm', 'Validated and understood');
-            appendChat('Architect-7', 'Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack.', 'text-white', audioLibrary.voice.calmResponse);
+            { const calm = pickResponse('calm', 'Your empathy parameters are acceptable. My logic loops are stabilizing. Proceed with the temporal hack.', audioLibrary.voice.calmResponse); appendChat('Architect-7', calm.text, 'text-white', calm.voice); }
             playSfx('correct');
             updateBars();
             return true;
@@ -663,7 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
           () => {
             gameState.eqScore = Math.max(0, gameState.eqScore - 8);
             updateNPCState('stress', 'Misread social cue');
-            appendChat('Architect-7', 'Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!', 'text-white', audioLibrary.voice.stressResponse);
+            { const stress = pickResponse('stress', 'Your aggressive syntax triggers my defense subroutines! The grid cannot be forced!', audioLibrary.voice.stressResponse); appendChat('Architect-7', stress.text, 'text-white', stress.voice); }
             playSfx('wrong');
             updateBars();
           }
@@ -683,7 +694,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const reflection = document.getElementById('debrief-text').value.trim();
         if (reflection.length < 20) {
           appendChat('SYSTEM', 'Debrief too short. Include strategy + transfer insight.', 'text-yellow-400');
-          appendChat('Architect-7', 'Debrief received, but include explicit strategy and transfer language for stronger consolidation.', 'text-white', audioLibrary.voice.debriefReceived);
+          { const debriefRetry = pickResponse('debrief', 'Debrief received, but include explicit strategy and transfer language for stronger consolidation.', audioLibrary.voice.debriefReceived); appendChat('Architect-7', debriefRetry.text, 'text-white', debriefRetry.voice); }
           playSfx('error');
           return;
         }
@@ -716,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     chatHistory.innerHTML = '';
-    appendChat('Architect-7', 'Session reboot acknowledged. We restart from Campaign Protocol 1: Mission Briefing.');
+    { const introReset = pickResponse('intro', 'Session reboot acknowledged. We restart from Campaign Protocol 1: Mission Briefing.', audioLibrary.voice.briefing); appendChat('Architect-7', introReset.text, 'text-white', introReset.voice); }
     updateNPCState('neutral', 'Session reset and synchronized');
     updateBars();
     renderObjectives();
@@ -727,17 +738,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const { skipProtocolVoice = false } = options;
     gameState.phase = phase;
     renderPhase();
-    if (architectProtocolResponses[phase]) {
-      appendChat('Architect-7', architectProtocolResponses[phase].text, 'text-white');
-      if (!skipProtocolVoice) {
-        enqueueVoice(architectProtocolResponses[phase].voice, { priority: voicePriority.protocol });
+    const phaseGroup = phase === 'iq' ? 'IQ' : phase === 'eq' ? 'EQ' : phase;
+    if (['briefing', 'IQ', 'EQ', 'debrief'].includes(phaseGroup)) {
+      const protocol = pickResponse(phaseGroup, `Protocol update: ${phaseGroup} engaged.`, null);
+      appendChat('Architect-7', protocol.text, 'text-white');
+      if (!skipProtocolVoice && protocol.voice) {
+        enqueueVoice(protocol.voice, { priority: voicePriority.protocol });
       }
     }
   }
 
   async function handleChatSubmit() {
     const text = chatInput.value.trim();
-    if (!text || !apiKey) return;
+    if (!text) return;
     appendChat('Weaver', text);
     chatInput.value = '';
     updateNPCState('thinking', 'Processing Semantics...');
@@ -837,6 +850,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  await loadResponseTemplates();
+
   cacheSfx();
   bgmVolumeInput.value = String(audioState.bgmVolume);
   sfxVolumeInput.value = String(audioState.sfxVolume);
@@ -852,10 +867,11 @@ document.addEventListener('DOMContentLoaded', () => {
     apiStatusEl.classList.replace('text-green-400', 'text-red-500');
   });
 
-  appendChat('Architect-7', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', 'text-white');
+    const intro = pickResponse('intro', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', audioLibrary.voice.briefing);
+  appendChat('Architect-7', intro.text, 'text-white');
   if (!hasPlayedStartupBriefing) {
     hasPlayedStartupBriefing = true;
-    enqueueVoice(audioLibrary.voice.briefing, { priority: voicePriority.protocol, clearQueue: true, interrupt: true });
+    enqueueVoice(intro.voice || audioLibrary.voice.briefing, { priority: voicePriority.protocol, clearQueue: true, interrupt: true });
   }
   updateBars();
   renderObjectives();
