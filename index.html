@@ -50,12 +50,12 @@
         <p id="status" class="text-xs md:text-sm text-slate-300">Awaiting game selection...</p>
         <div class="flex items-center gap-3">
           <button id="btn-reset-mindweave-api" class="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors text-xs font-medium">
-            Replace Mindweave API Key
+            Replace Mindweave LLM API Key
           </button>
           <div id="spinner" class="hidden h-4 w-4 border-2 border-white/20 border-t-[var(--sky-blue)] rounded-full animate-spin"></div>
         </div>
       </div>
-      <p class="mt-2 text-[11px] text-slate-500">Mindweave API key storage location: your browser's localStorage entry <code>mindweave_llm_api_key</code>.</p>
+      <p class="mt-2 text-[11px] text-slate-500">Mindweave LLM API key storage location: your browser's localStorage entry <code>mindweave_llm_api_key</code> (OpenAI, Anthropic, Gemini, Groq, OpenRouter, xAI supported).</p>
 
       <br /> <hr class="border-white/10" /> <br />
       
@@ -73,11 +73,11 @@
     <div id="api-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div class="glass-panel bg-slate-900 border border-white/20 rounded-2xl max-w-md w-full p-6 shadow-2xl">
         <h3 class="text-xl font-bold text-white mb-2">LLM Configuration Required</h3>
-        <p class="text-sm text-slate-400 mb-6">Project: MindWeave requires an LLM API key to power dynamic NPC interactions. This key is stored securely in your local browser storage and is never saved to our servers.</p>
+        <p class="text-sm text-slate-400 mb-6">Project: MindWeave requires an LLM API key (OpenAI, Anthropic, Gemini, Groq, OpenRouter, or xAI) to power dynamic NPC interactions. This key is stored securely in your local browser storage and is never saved to our servers.</p>
         
         <div class="mb-4">
           <label for="api-key-input" class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">API Key</label>
-          <input type="password" id="api-key-input" placeholder="sk-..." class="w-full bg-black/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[var(--sky-blue)] transition-colors">
+          <input type="password" id="api-key-input" placeholder="sk-..., sk-ant-..., gsk_..., AIza..." class="w-full bg-black/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[var(--sky-blue)] transition-colors">
         </div>
         
         <div class="flex justify-end gap-3 mt-6">
