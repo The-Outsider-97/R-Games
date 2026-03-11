@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
       calmResponse: '../src/audio/A7_calm_response.m4a',
       stressResponse: '../src/audio/A7_stress_response.m4a',
       thinkingResponse: '../src/audio/A7_thinking_response.m4a',
+      ambiguousResponse: '../src/audio/A7_ambiguous_chat.mp4',
       debriefReceived: '../src/audio/A7_final_debrief.m4a',
     }
   };
@@ -65,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bgmCurrent: null,
     bgmNext: null,
     bgmFadeInterval: null,
+    bgmTrackIndex: 0,
   };
 
   const voiceCache = new Map();
@@ -79,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const voiceQueue = [];
   let activeVoiceJob = null;
+  let hasPlayedStartupBriefing = false;
 
   const gameState = {
     phase: 'briefing',
@@ -272,17 +275,30 @@ document.addEventListener('DOMContentLoaded', () => {
     return id;
   }
 
-  function pickRandomBgm() {
-    const chosen = audioLibrary.bgm[Math.floor(Math.random() * audioLibrary.bgm.length)] || audioLibrary.bgm[0];
-    return createAudio(chosen, true);
+  function startBgmTrack(trackIndex = 0) {
+    const totalTracks = audioLibrary.bgm.length;
+    if (!totalTracks) return;
+
+    const normalizedIndex = ((trackIndex % totalTracks) + totalTracks) % totalTracks;
+    audioState.bgmTrackIndex = normalizedIndex;
+
+    if (audioState.bgmCurrent) {
+      audioState.bgmCurrent.pause();
+      audioState.bgmCurrent.currentTime = 0;
+      audioState.bgmCurrent = null;
+    }
+
+    const nextTrack = createAudio(audioLibrary.bgm[normalizedIndex], false);
+    audioState.bgmCurrent = nextTrack;
+    nextTrack.volume = audioState.bgmMuted ? 0 : audioState.bgmVolume;
+    nextTrack.addEventListener('ended', () => {
+      startBgmTrack((normalizedIndex + 1) % totalTracks);
+    }, { once: true });
+    nextTrack.play().catch(() => {});
   }
 
   function startBgm() {
-    const first = pickRandomBgm();
-    audioState.bgmCurrent = first;
-    first.volume = audioState.bgmMuted ? 0 : audioState.bgmVolume;
-    first.play().catch(() => {});
-    scheduleBgmTransition(first);
+    startBgmTrack(0);
   }
 
   function applyAudioSettings() {
@@ -390,11 +406,17 @@ document.addEventListener('DOMContentLoaded', () => {
       gameState.eqScore = Math.max(0, Math.min(100, gameState.eqScore + Number(payload.eq_delta || 0)));
       updateBars();
       const reply = payload.reply || 'No response generated.';
-      appendChat('Architect-7', reply, 'text-white', audioLibrary.voice.calmResponse);
+      const normalizedReply = reply.toLowerCase();
+      let replyVoice = audioLibrary.voice.calmResponse;
+      if (normalizedReply.includes('ambiguous')) replyVoice = audioLibrary.voice.ambiguousResponse;
+      if (normalizedReply.includes('stress') || normalizedReply.includes('unstable')) replyVoice = audioLibrary.voice.stressResponse;
+      appendChat('Architect-7', reply, 'text-white', replyVoice);
       playSfx('correct');
     } catch (error) {
       appendChat('SYSTEM', `Backend sync failed: ${error.message}`, 'text-red-500');
-      appendChat('Architect-7', 'Input acknowledged. However, the emotional context is ambiguous. Please recalibrate your active listening protocols.', 'text-slate-200', audioLibrary.voice.chatError);
+      appendChat('Architect-7', 'Input acknowledged. However, the emotional context is ambiguous. Please recalibrate your active listening protocols.', 'text-slate-200');
+      await enqueueVoice(audioLibrary.voice.chatError, { priority: voicePriority.sequence, clearQueue: true, interrupt: true });
+      await enqueueVoice(audioLibrary.voice.ambiguousResponse, { priority: voicePriority.sequence });
       playSfx('error');
       updateNPCState('stress', 'Link Unstable');
     }
@@ -599,7 +621,6 @@ document.addEventListener('DOMContentLoaded', () => {
     appendChat('Weaver', text);
     chatInput.value = '';
     updateNPCState('thinking', 'Processing Semantics...');
-    enqueueVoice(audioLibrary.voice.thinkingResponse, { priority: voicePriority.reaction, clearQueue: true, interrupt: true });
     await sendTaskMessage(text, gameState.phase === 'debrief' ? 'debrief_reflection' : 'npc_dialogue');
 
     if (gameState.phase === 'eq' && /understand|hear|support|calm|together/i.test(text)) {
@@ -705,7 +726,11 @@ document.addEventListener('DOMContentLoaded', () => {
     apiStatusEl.classList.replace('text-green-400', 'text-red-500');
   });
 
-  appendChat('Architect-7', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', 'text-white', audioLibrary.voice.briefing);
+  appendChat('Architect-7', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', 'text-white');
+  if (!hasPlayedStartupBriefing) {
+    hasPlayedStartupBriefing = true;
+    enqueueVoice(audioLibrary.voice.briefing, { priority: voicePriority.protocol, clearQueue: true, interrupt: true });
+  }
   updateBars();
   renderObjectives();
   setPhase('briefing', { skipProtocolVoice: true });
