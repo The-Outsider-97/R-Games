@@ -20,6 +20,8 @@ Players assume the role of a "Weaver," a diplomat-engineer tasked with rebuildin
 
 ## Scientific Foundation
 
+*   **Campaign Progression:** Structured as Mission Briefing → IQ Systems Repair → EQ Diplomacy & Regulation → Metacognitive Debrief, with additional protocol drills for task-switching, planning optimization, cognitive reappraisal, and co-regulation boundaries.
+*   **Evidence-Informed Design:** Protocols are aligned with research-backed principles from working-memory training, executive control, socio-emotional learning, cognitive reappraisal, and reflective transfer practice.
 *   **IQ & Problem-Solving Engine:** Utilizes advanced implementations of the Dual N-Back task, resource management planning, and procedural logic gates to target working memory, cognitive flexibility, and pattern recognition.
 *   **EQ Engine:** Employs the Facial Action Coding System (FACS) to train micro-expression recognition. Features empathy bridging via active listening and biometric emotional regulation.
 *   **Metacognitive Integration:** Features a debriefing phase requiring players to articulate their strategies, bridging the gap between in-game mechanics and real-world application.
