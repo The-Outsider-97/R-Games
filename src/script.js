@@ -83,7 +83,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
       statusEl.textContent = payload.message || `${game} initialized.`;
 
-      const launchUrl = payload.launch_url || fallbackLaunch;
+      let launchUrl = payload.launch_url || fallbackLaunch;
+      if (game === "mindweave" && launchUrl) {
+        const url = new URL(launchUrl, window.location.origin);
+        url.searchParams.set("start", "home");
+        launchUrl = `${url.pathname}${url.search}${url.hash}`;
+      }
       if (launchUrl) {
         window.location.href = launchUrl;
       }
