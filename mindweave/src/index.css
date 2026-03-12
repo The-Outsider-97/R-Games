@@ -67,6 +67,13 @@ body {
   border-color: rgba(255, 255, 255, 0.25);
 }
 
+.phase-btn:disabled,
+.protocol-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .phase-active {
   border-color: rgba(56, 189, 248, 0.8);
   color: #e2e8f0;
