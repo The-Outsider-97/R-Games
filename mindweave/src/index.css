@@ -151,3 +151,13 @@ body {
     bottom: 1.5rem;
   }
 }
+
+.mindweave-entity-panel {
+  max-height: 50vh;
+}
+
+@media (max-width: 1023px) {
+  .mindweave-entity-panel {
+    max-height: 50vh;
+  }
+}
