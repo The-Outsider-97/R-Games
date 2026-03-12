@@ -668,17 +668,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function launchProtocolOneFromHome() {
     markObjective('briefing_read', 'Briefing acknowledged from Home launch');
-    const ack = pickResponse('briefing', 'Home launch synchronized. Proceeding to Campaign Protocol 1.', audioLibrary.voice.briefingAcknowledge);
-    appendChat('Architect-7', ack.text, 'text-white', ack.voice);
-    enqueueVoice(audioLibrary.voice.briefingAcknowledge, {
-      priority: voicePriority.sequence,
-      clearQueue: true,
-      interrupt: true,
-      delayMs: 500,
-    }).then(() => {
-      setPhase('iq', { skipProtocolVoice: true });
-      enqueueVoice(audioLibrary.voice.protocol1, { priority: voicePriority.sequence });
-    });
+    appendChat('SYSTEM', 'Home launch synchronized. Awaiting briefing confirmation for Protocol 1.', 'text-slate-400');
   }
 
   function renderPhase() {
@@ -718,7 +708,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         { const ack = pickResponse('briefing', 'Acknowledged. Mission brief locked.', audioLibrary.voice.briefingAcknowledge); appendChat('Architect-7', ack.text, 'text-white', ack.voice); }
         await enqueueVoice(audioLibrary.voice.briefingAcknowledge, { priority: voicePriority.sequence, clearQueue: true, interrupt: true, delayMs: 500 });
         setPhase('iq', { skipProtocolVoice: true });
-        enqueueVoice(audioLibrary.voice.protocol2, { priority: voicePriority.sequence });
+        enqueueVoice(audioLibrary.voice.protocol1, { priority: voicePriority.sequence });
       };
     }
 
@@ -1336,11 +1326,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     apiStatusEl.classList.replace('text-green-400', 'text-red-500');
   });
 
-    const intro = pickResponse('intro', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', audioLibrary.voice.briefing);
+  const intro = pickResponse('intro', 'Weaver, the socio-cognitive lattice is collapsing. Begin with mission briefing and restore balance.', audioLibrary.voice.briefing);
   appendChat('Architect-7', intro.text, 'text-white');
   if (!hasPlayedStartupBriefing) {
     hasPlayedStartupBriefing = true;
-    enqueueVoice(intro.voice || audioLibrary.voice.briefing, { priority: voicePriority.protocol, clearQueue: true, interrupt: true });
+    await enqueueVoice(intro.voice || audioLibrary.voice.briefing, {
+      priority: voicePriority.protocol,
+      clearQueue: true,
+      interrupt: true,
+      delayMs: 1000,
+    });
+    enqueueVoice(audioLibrary.voice.protocol1, { priority: voicePriority.sequence });
   }
   updateBars();
   renderObjectives();
