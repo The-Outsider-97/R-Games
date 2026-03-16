@@ -65,6 +65,8 @@ class PulucAI:
             "last_updated": None,
         }
         self.capture_weights: dict[str, float] = {}
+        self.position_weights: dict[str, float] = {}
+        self.capture_weights: dict[str, float] = {}
         self._load_learning_state()
 
         self.shared_memory.set("puluc_ai_status", "initialized")
@@ -127,6 +129,7 @@ class PulucAI:
 
             self._update_score_stats(payload)
             self._update_capture_preferences(payload)
+            self._update_position_preferences(payload)
             self._save_learning_state()
             return True
         except Exception as error:  # noqa: BLE001
@@ -243,9 +246,13 @@ class PulucAI:
 
         destination = move.get("to") or move.get("target") or move.get("position")
         if isinstance(destination, (int, float)):
-            score += int(destination) * 0.7
+            destination_index = int(destination)
+            score += destination_index * 0.7
+            score += self.position_weights.get(str(destination_index), 0.0)
         elif isinstance(destination, dict) and isinstance(destination.get("index"), int):
-            score += destination["index"] * 0.7
+            destination_index = destination["index"]
+            score += destination_index * 0.7
+            score += self.position_weights.get(str(destination_index), 0.0)
 
         captured = move.get("captured") or move.get("captures") or move.get("capturedCount")
         if isinstance(captured, bool) and captured:
@@ -348,6 +355,33 @@ class PulucAI:
 
         self.shared_memory.set("puluc_capture_weights", self.capture_weights)
 
+    def _update_position_preferences(self, payload: dict[str, Any]) -> None:
+        actions = payload.get("aiActions")
+        if not isinstance(actions, list):
+            return
+
+        reward = 0.8 if self.stats.get("last_result") == "win" else -0.2
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+
+            destination = action.get("to") or action.get("target") or action.get("position")
+            destination_index: int | None = None
+
+            if isinstance(destination, (int, float)):
+                destination_index = int(destination)
+            elif isinstance(destination, dict) and isinstance(destination.get("index"), int):
+                destination_index = destination["index"]
+
+            if destination_index is None:
+                continue
+
+            key = str(destination_index)
+            current = self.position_weights.get(key, 0.0)
+            self.position_weights[key] = round((current * 0.88) + reward, 4)
+
+        self.shared_memory.set("puluc_position_weights", self.position_weights)
+
     def _load_learning_state(self) -> None:
         if not self.learning_store_path.exists():
             return
@@ -362,6 +396,12 @@ class PulucAI:
                     for key, value in data["capture_weights"].items()
                     if isinstance(value, (int, float))
                 }
+            if isinstance(data.get("position_weights"), dict):
+                self.position_weights = {
+                    str(key): float(value)
+                    for key, value in data["position_weights"].items()
+                    if isinstance(value, (int, float))
+                }
         except Exception as error:  # noqa: BLE001
             logger.warning("Unable to load Puluc learning state: %s", error)
 
@@ -373,6 +413,7 @@ class PulucAI:
                     {
                         "stats": self.stats,
                         "capture_weights": self.capture_weights,
+                        "position_weights": self.position_weights,
                         "updated_at": datetime.utcnow().isoformat(),
                     },
                     handle,
