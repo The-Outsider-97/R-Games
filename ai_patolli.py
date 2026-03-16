@@ -11,6 +11,7 @@ import json
 import random
 import sys
 import time
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -23,11 +24,11 @@ sys.path.insert(0, str(project_root))
 ai_root = project_root / "AI"
 sys.path.insert(0, str(ai_root))
 
-from logs.logger import get_logger
 from src.agents.agent_factory import AgentFactory
 from src.agents.collaborative.shared_memory import SharedMemory
 from src.agents.collaborative_agent import CollaborativeAgent
 from src.agents.planning.planning_types import Task, TaskType
+from logs.logger import get_logger
 
 logger = get_logger("Patolli")
 
