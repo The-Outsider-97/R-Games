@@ -1,5 +1,3 @@
-import { initSidebar } from '../../src/sideBar.js';
-
 const TRACK = [
   [16, 84], [22, 78], [28, 72], [34, 66], [40, 60], [46, 54], [52, 48],
   [58, 42], [64, 36], [70, 30], [76, 24], [82, 18], [88, 12],
@@ -54,6 +52,22 @@ const refs = {
 };
 
 const startOffset = { red: 0, blue: Math.floor(TRACK.length / 2) };
+const homeAnchor = { red: [10, 92], blue: [90, 8] };
+
+function initSidebar({ container, toggleButton }) {
+  if (!container || !toggleButton) return;
+
+  const setCollapsed = (collapsed) => {
+    container.classList.toggle('collapsed', collapsed);
+    toggleButton.setAttribute('aria-expanded', String(!collapsed));
+    toggleButton.textContent = collapsed ? '▸ Show Scoreboard' : '▸ Hide Scoreboard';
+  };
+
+  setCollapsed(false);
+  toggleButton.addEventListener('click', () => {
+    setCollapsed(!container.classList.contains('collapsed'));
+  });
+}
 
 function appendLog(message) {
   const entry = document.createElement('p');
@@ -77,9 +91,14 @@ function renderTokens() {
   refs.tokenLayer.innerHTML = '';
   ['red', 'blue'].forEach((color) => {
     const occupancy = new Map();
+    const homeStacks = [];
+
     state[color].tokens.forEach((token) => {
       const boardIndex = getBoardIndex(color, token);
-      if (boardIndex === null) return;
+      if (boardIndex === null) {
+        homeStacks.push(token);
+        return;
+      }
 
       const stack = occupancy.get(boardIndex) || 0;
       occupancy.set(boardIndex, stack + 1);
@@ -90,6 +109,16 @@ function renderTokens() {
       tokenNode.style.left = `${x + (stack % 2 ? 1.4 : -1.4)}%`;
       tokenNode.style.top = `${y + (stack > 1 ? 1.4 : 0)}%`;
       tokenNode.title = `${color.toUpperCase()} token ${token.id + 1}`;
+      refs.tokenLayer.append(tokenNode);
+    });
+
+    homeStacks.forEach((token, index) => {
+      const [homeX, homeY] = homeAnchor[color];
+      const tokenNode = document.createElement('div');
+      tokenNode.className = `runner ${color} offboard`;
+      tokenNode.style.left = `${homeX + (index % 3) * 2.2}%`;
+      tokenNode.style.top = `${homeY - Math.floor(index / 3) * 2.2}%`;
+      tokenNode.title = `${color.toUpperCase()} token ${token.id + 1} (off board)`;
       refs.tokenLayer.append(tokenNode);
     });
   });
@@ -215,10 +244,11 @@ function syncAudioUi() {
 
 function initializeAudio() {
   refs.bgMusic.volume = 0.5;
+  refs.bgMusic.load();
   syncAudioUi();
 
   const tryPlay = () => refs.bgMusic.play().catch(() => {});
-  document.addEventListener('click', tryPlay, { once: true });
+  document.addEventListener('pointerdown', tryPlay, { once: true });
   document.addEventListener('keydown', tryPlay, { once: true });
 
   refs.muteBtn.addEventListener('click', () => {
