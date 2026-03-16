@@ -1,16 +1,23 @@
-const POSITIONS = [
-  [50, 8], [58, 14], [66, 20], [74, 28], [82, 36], [88, 44],
-  [92, 50], [88, 56], [82, 64], [74, 72], [66, 80], [58, 86],
-  [50, 92], [42, 86], [34, 80], [26, 72], [18, 64], [12, 56],
-  [8, 50], [12, 44], [18, 36], [26, 28], [34, 20], [42, 14]
+import { initSidebar } from '../../src/sideBar.js';
+
+const TRACK = [
+  [16, 84], [22, 78], [28, 72], [34, 66], [40, 60], [46, 54], [52, 48],
+  [58, 42], [64, 36], [70, 30], [76, 24], [82, 18], [88, 12],
+  [82, 24], [76, 30], [70, 36], [64, 42], [58, 48], [52, 54], [46, 60],
+  [40, 66], [34, 72], [28, 78], [22, 84], [16, 90],
+  [12, 82], [18, 76], [24, 70], [30, 64], [36, 58], [42, 52], [48, 46],
+  [54, 40], [60, 34], [66, 28], [72, 22], [78, 16], [84, 10],
+  [90, 18], [84, 24], [78, 30], [72, 36], [66, 42], [60, 48], [54, 54],
+  [48, 60], [42, 66], [36, 72], [30, 78], [24, 84], [18, 90], [12, 88]
 ];
 
-const WIN_SCORE = 20;
+const SAFE_SPACES = new Set([0, 13, 26, 39]);
+const TOKEN_COUNT = 6;
 
 const state = {
   turn: 'red',
-  red: { index: 0, lap: 0, score: 0 },
-  blue: { index: 12, lap: 0, score: 0 },
+  red: { score: 0, tokens: Array.from({ length: TOKEN_COUNT }, (_, id) => ({ id, steps: -1 })) },
+  blue: { score: 0, tokens: Array.from({ length: TOKEN_COUNT }, (_, id) => ({ id, steps: -1 })) },
   pendingRoll: null,
   winner: null,
   lastAction: '—'
@@ -21,8 +28,6 @@ const refs = {
   winnerBanner: document.getElementById('winner-banner'),
   redCard: document.getElementById('red-card'),
   blueCard: document.getElementById('blue-card'),
-  redRunner: document.getElementById('red-runner'),
-  blueRunner: document.getElementById('blue-runner'),
   redScore: document.getElementById('red-score'),
   blueScore: document.getElementById('blue-score'),
   redLap: document.getElementById('red-lap'),
@@ -41,21 +46,14 @@ const refs = {
   bgMusic: document.getElementById('bg-music'),
   muteBtn: document.getElementById('mute-btn'),
   volumeSlider: document.getElementById('volume-slider'),
-  volumeValue: document.getElementById('volume-value')
+  volumeValue: document.getElementById('volume-value'),
+  muteIcon: document.getElementById('mute-icon'),
+  scoreSidebar: document.getElementById('scoreboard-sidebar'),
+  sidebarToggle: document.getElementById('sidebar-toggle'),
+  tokenLayer: document.getElementById('token-layer')
 };
 
-function setRunnerPosition(color) {
-  const [x, y] = POSITIONS[state[color].index];
-  const node = color === 'red' ? refs.redRunner : refs.blueRunner;
-  node.style.left = `${x}%`;
-  node.style.top = `${y}%`;
-}
-
-function setBeanPips(value = 0) {
-  refs.beanPips.forEach((pip, index) => {
-    pip.classList.toggle('active', index < value);
-  });
-}
+const startOffset = { red: 0, blue: Math.floor(TRACK.length / 2) };
 
 function appendLog(message) {
   const entry = document.createElement('p');
@@ -64,18 +62,65 @@ function appendLog(message) {
   state.lastAction = message;
 }
 
+function setBeanPips(value = 0) {
+  refs.beanPips.forEach((pip, index) => {
+    pip.classList.toggle('active', index < Math.min(value, 5));
+  });
+}
+
+function getBoardIndex(color, token) {
+  if (token.steps < 0 || token.steps >= TRACK.length) return null;
+  return (startOffset[color] + token.steps) % TRACK.length;
+}
+
+function renderTokens() {
+  refs.tokenLayer.innerHTML = '';
+  ['red', 'blue'].forEach((color) => {
+    const occupancy = new Map();
+    state[color].tokens.forEach((token) => {
+      const boardIndex = getBoardIndex(color, token);
+      if (boardIndex === null) return;
+
+      const stack = occupancy.get(boardIndex) || 0;
+      occupancy.set(boardIndex, stack + 1);
+
+      const [x, y] = TRACK[boardIndex];
+      const tokenNode = document.createElement('div');
+      tokenNode.className = `runner ${color}`;
+      tokenNode.style.left = `${x + (stack % 2 ? 1.4 : -1.4)}%`;
+      tokenNode.style.top = `${y + (stack > 1 ? 1.4 : 0)}%`;
+      tokenNode.title = `${color.toUpperCase()} token ${token.id + 1}`;
+      refs.tokenLayer.append(tokenNode);
+    });
+  });
+}
+
+function findMovableToken(color, roll) {
+  return state[color].tokens.find((token) => {
+    if (token.steps === -1) return roll >= 1 && roll <= TRACK.length;
+    if (token.steps >= TRACK.length) return false;
+    return token.steps + roll <= TRACK.length;
+  });
+}
+
+function captureAt(boardIndex, moverColor) {
+  if (SAFE_SPACES.has(boardIndex)) return false;
+  const enemyColor = moverColor === 'red' ? 'blue' : 'red';
+  const enemy = state[enemyColor].tokens.find((token) => getBoardIndex(enemyColor, token) === boardIndex);
+  if (!enemy) return false;
+
+  enemy.steps = -1;
+  state[moverColor].score += 2;
+  appendLog(`${moverColor.toUpperCase()} captured ${enemyColor.toUpperCase()} on space ${boardIndex + 1} (+2).`);
+  return true;
+}
+
 function syncScoreboard() {
   const scoreDiff = state.red.score - state.blue.score;
   refs.scoreGap.textContent = String(Math.abs(scoreDiff));
-  refs.totalLaps.textContent = String(state.red.lap + state.blue.lap);
+  refs.totalLaps.textContent = String(state.red.tokens.filter((t) => t.steps >= TRACK.length).length + state.blue.tokens.filter((t) => t.steps >= TRACK.length).length);
   refs.scoreLastAction.textContent = state.lastAction;
-
-  if (scoreDiff === 0) {
-    refs.scoreLead.textContent = 'Tied';
-    return;
-  }
-
-  refs.scoreLead.textContent = scoreDiff > 0 ? 'Red + Lead' : 'Blue + Lead';
+  refs.scoreLead.textContent = scoreDiff === 0 ? 'Tied' : scoreDiff > 0 ? 'Red + Lead' : 'Blue + Lead';
 }
 
 function syncUi() {
@@ -84,28 +129,32 @@ function syncUi() {
   refs.redCard.classList.toggle('active', state.turn === 'red');
   refs.blueCard.classList.toggle('active', state.turn === 'blue');
 
+  const redFinished = state.red.tokens.filter((t) => t.steps >= TRACK.length).length;
+  const blueFinished = state.blue.tokens.filter((t) => t.steps >= TRACK.length).length;
+
   refs.redScore.textContent = String(state.red.score);
   refs.blueScore.textContent = String(state.blue.score);
-  refs.redLap.textContent = String(state.red.lap);
-  refs.blueLap.textContent = String(state.blue.lap);
-  refs.redHome.textContent = String(Math.max(0, 6 - state.red.lap));
-  refs.blueHome.textContent = String(Math.max(0, 6 - state.blue.lap));
+  refs.redLap.textContent = String(redFinished);
+  refs.blueLap.textContent = String(blueFinished);
+  refs.redHome.textContent = String(state.red.tokens.filter((t) => t.steps === -1).length);
+  refs.blueHome.textContent = String(state.blue.tokens.filter((t) => t.steps === -1).length);
 
   if (state.winner) {
-    refs.winnerBanner.textContent = `${state.winner.toUpperCase()} CLAIMED THE RITUAL`;
+    refs.winnerBanner.textContent = `${state.winner.toUpperCase()} COMPLETED ALL 6 TOKENS`;
     refs.winnerBanner.classList.remove('hidden');
   }
 
   syncScoreboard();
-  setRunnerPosition('red');
-  setRunnerPosition('blue');
+  renderTokens();
 }
 
-function nextTurn() {
+function nextTurn(extraTurn = false) {
   state.pendingRoll = null;
   refs.moveBtn.disabled = true;
-  state.turn = state.turn === 'red' ? 'blue' : 'red';
   setBeanPips(0);
+  if (!extraTurn) {
+    state.turn = state.turn === 'red' ? 'blue' : 'red';
+  }
   syncUi();
 }
 
@@ -116,42 +165,51 @@ function completeGame() {
 }
 
 function applyRoll() {
-  if (!state.pendingRoll || state.winner) return;
+  if (state.pendingRoll === null || state.winner) return;
 
-  const mover = state[state.turn];
-  const foeColor = state.turn === 'red' ? 'blue' : 'red';
-  const foe = state[foeColor];
-  const oldIndex = mover.index;
+  const moverColor = state.turn;
+  const mover = state[moverColor];
+  const token = findMovableToken(moverColor, state.pendingRoll);
 
-  mover.index = (mover.index + state.pendingRoll) % POSITIONS.length;
-  if (mover.index <= oldIndex) {
-    mover.lap += 1;
+  if (!token) {
+    appendLog(`${moverColor.toUpperCase()} has no legal move for ${state.pendingRoll}.`);
+    nextTurn();
+    return;
+  }
+
+  if (token.steps === -1) {
+    token.steps = state.pendingRoll - 1;
+    appendLog(`${moverColor.toUpperCase()} entered token ${token.id + 1} and advanced ${state.pendingRoll}.`);
+  } else {
+    token.steps += state.pendingRoll;
+    appendLog(`${moverColor.toUpperCase()} advanced token ${token.id + 1} by ${state.pendingRoll}.`);
+  }
+
+  if (token.steps === TRACK.length) {
     mover.score += 5;
-    appendLog(`${state.turn.toUpperCase()} completed a sacred loop (+5).`);
+    appendLog(`${moverColor.toUpperCase()} brought token ${token.id + 1} home (+5).`);
+  } else {
+    const boardIndex = getBoardIndex(moverColor, token);
+    captureAt(boardIndex, moverColor);
   }
 
-  if (mover.index === foe.index) {
-    foe.index = foeColor === 'red' ? 0 : 12;
-    mover.score += 2;
-    appendLog(`${state.turn.toUpperCase()} captured ${foeColor.toUpperCase()} (+2).`);
-  }
-
-  appendLog(`${state.turn.toUpperCase()} advanced ${state.pendingRoll} spaces.`);
-
-  if (mover.score >= WIN_SCORE) {
-    appendLog(`${state.turn.toUpperCase()} wins the match!`);
+  if (mover.tokens.every((piece) => piece.steps >= TRACK.length)) {
+    appendLog(`${moverColor.toUpperCase()} wins the match!`);
     completeGame();
-    setBeanPips(state.pendingRoll);
     syncUi();
     return;
   }
 
-  nextTurn();
+  const extraTurn = state.pendingRoll === 5 || state.pendingRoll === 10;
+  if (extraTurn) {
+    appendLog(`${moverColor.toUpperCase()} earned an extra cast.`);
+  }
+  nextTurn(extraTurn);
 }
 
 function syncAudioUi() {
   refs.volumeValue.textContent = `${Math.round(refs.bgMusic.volume * 100)}%`;
-  refs.muteBtn.textContent = refs.bgMusic.muted ? 'Unmute' : 'Mute';
+  refs.muteIcon.src = refs.bgMusic.muted ? '../img/mute.svg' : '../img/sound_on.svg';
   refs.muteBtn.setAttribute('aria-pressed', String(refs.bgMusic.muted));
 }
 
@@ -159,45 +217,40 @@ function initializeAudio() {
   refs.bgMusic.volume = 0.5;
   syncAudioUi();
 
-  const tryPlay = () => {
-    refs.bgMusic.play().catch(() => {});
-  };
-
+  const tryPlay = () => refs.bgMusic.play().catch(() => {});
   document.addEventListener('click', tryPlay, { once: true });
   document.addEventListener('keydown', tryPlay, { once: true });
 
   refs.muteBtn.addEventListener('click', () => {
     refs.bgMusic.muted = !refs.bgMusic.muted;
-    if (!refs.bgMusic.muted) {
-      refs.bgMusic.play().catch(() => {});
-    }
+    if (!refs.bgMusic.muted) refs.bgMusic.play().catch(() => {});
     syncAudioUi();
   });
 
   refs.volumeSlider.addEventListener('input', (event) => {
     const volume = Number(event.target.value) / 100;
     refs.bgMusic.volume = volume;
-    if (volume > 0 && refs.bgMusic.muted) {
-      refs.bgMusic.muted = false;
-    }
+    if (volume > 0 && refs.bgMusic.muted) refs.bgMusic.muted = false;
     syncAudioUi();
   });
 }
 
 refs.rollBtn.addEventListener('click', () => {
-  if (state.pendingRoll || state.winner) return;
-  state.pendingRoll = Math.ceil(Math.random() * 5);
-  refs.lastRoll.textContent = `Roll: ${state.pendingRoll}`;
-  setBeanPips(state.pendingRoll);
+  if (state.pendingRoll !== null || state.winner) return;
+  const rawRoll = Math.floor(Math.random() * 6);
+  state.pendingRoll = rawRoll === 0 ? 10 : rawRoll;
+  refs.lastRoll.textContent = `Cast: ${state.pendingRoll}`;
+  setBeanPips(rawRoll);
   refs.moveBtn.disabled = false;
-  appendLog(`${state.turn.toUpperCase()} cast beans for ${state.pendingRoll}.`);
+  appendLog(`${state.turn.toUpperCase()} cast ${state.pendingRoll} from five beans.`);
   syncUi();
 });
 
 refs.moveBtn.addEventListener('click', applyRoll);
 
 initializeAudio();
+initSidebar({ container: refs.scoreSidebar, toggleButton: refs.sidebarToggle });
 setBeanPips(0);
 syncUi();
-appendLog('Match started. Red takes the first cast.');
+appendLog('Match started. Each side must take all 6 tokens across the X-board track.');
 syncUi();
