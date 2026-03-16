@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Puluc | R-Games</title>
+  <link rel="icon" type="image/x-icon" href="../img/Logo01.svg" />
+  <link rel="stylesheet" href="src/index.css" />
+</head>
+<body>
+  <a href="/" class="home-btn" aria-label="Home">
+    <img src="../img/home.svg" alt="" />
+  </a>
+
+  <main class="puluc-shell">
+    <header class="top-bar">
+      <div>
+        <p class="subtitle">MAYAN RACE + CAPTURE</p>
+        <h1>PULUC</h1>
+        <p class="title-note">Throw marked sticks, advance your warriors, and bind captured enemy stacks.</p>
+      </div>
+      <div class="turn-wrap">
+        <p>Current Turn</p>
+        <h2 id="turn-name">RED</h2>
+      </div>
+    </header>
+
+    <section class="main-layout">
+      <aside class="player-panel">
+        <article class="player-card red active" id="red-card">
+          <h3>RED</h3>
+          <p><span>Warriors on path</span><strong id="red-onboard">0</strong></p>
+          <p><span>Warriors at start</span><strong id="red-reserve">5</strong></p>
+          <p><span>Warriors finished</span><strong id="red-finished">0</strong></p>
+        </article>
+        <article class="player-card blue" id="blue-card">
+          <h3>BLUE</h3>
+          <p><span>Warriors on path</span><strong id="blue-onboard">0</strong></p>
+          <p><span>Warriors at start</span><strong id="blue-reserve">5</strong></p>
+          <p><span>Warriors finished</span><strong id="blue-finished">0</strong></p>
+        </article>
+      </aside>
+
+      <section>
+        <div id="board" class="board" aria-label="Puluc game board"></div>
+        <div id="throw-tray" class="throw-tray" aria-live="polite"></div>
+        <div class="controls">
+          <button id="throw-btn" class="action-btn">Throw Sticks</button>
+          <button id="move-btn" class="action-btn" disabled>Move Warrior</button>
+        </div>
+      </section>
+
+      <aside class="log-panel">
+        <h4>Round Log</h4>
+        <div id="log" class="log"></div>
+      </aside>
+    </section>
+
+    <p id="winner-banner" class="winner-banner hidden" role="status" aria-live="polite"></p>
+  </main>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
