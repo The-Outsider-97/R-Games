@@ -8,7 +8,9 @@
   <link rel="stylesheet" href="src/index.css" />
 </head>
 <body>
-  <a href="/" class="home-btn">Home</a>
+  <a href="/" class="home-btn" aria-label="Home">
+    <img src="../img/home.svg" alt="" />
+  </a>
 
   <main class="patolli-shell">
     <header class="top-bar">
@@ -22,7 +24,9 @@
         <p id="turn-label">CURRENT TURN</p>
         <h2 id="turn-name" class="red-turn">RED</h2>
         <div class="audio-controls" aria-label="Background music controls">
-          <button id="mute-btn" class="audio-btn" type="button" aria-pressed="false">Mute</button>
+          <button id="mute-btn" class="audio-btn" type="button" aria-pressed="false" aria-label="Mute background music">
+            <img id="mute-icon" src="../img/sound_on.svg" alt="" />
+          </button>
           <label for="volume-slider">Volume</label>
           <input id="volume-slider" type="range" min="0" max="100" value="50" />
           <span id="volume-value">50%</span>
@@ -32,12 +36,22 @@
     </header>
 
     <section class="board-row">
-      <aside class="player-card red active" id="red-card">
-        <h3>RED</h3>
-        <p><span>Points</span><strong id="red-score">0</strong></p>
-        <p><span>Lap</span><strong id="red-lap">0</strong></p>
-        <p><span>Tokens Home</span><strong id="red-home">6</strong></p>
-        <p class="objective">Advance your runner around the sacred cross. Every full loop earns 5 points.</p>
+      <aside class="player-stack">
+        <section class="player-card red active" id="red-card">
+          <h3>RED</h3>
+          <p><span>Points</span><strong id="red-score">0</strong></p>
+          <p><span>Finished</span><strong id="red-lap">0</strong></p>
+          <p><span>Off Board</span><strong id="red-home">6</strong></p>
+          <p class="objective">Move all six tokens along the X-board track. Each token that exits scores 5 points.</p>
+        </section>
+
+        <section class="player-card blue" id="blue-card">
+          <h3>BLUE</h3>
+          <p><span>Points</span><strong id="blue-score">0</strong></p>
+          <p><span>Finished</span><strong id="blue-lap">0</strong></p>
+          <p><span>Off Board</span><strong id="blue-home">6</strong></p>
+          <p class="objective">Landing on a rival sends that token off-board (except on safe spaces).</p>
+        </section>
       </aside>
 
       <section class="board-wrap">
@@ -57,8 +71,7 @@
             <span>☉</span>
           </div>
 
-          <div class="runner red" id="red-runner" title="Red runner"></div>
-          <div class="runner blue" id="blue-runner" title="Blue runner"></div>
+          <div id="token-layer" class="token-layer" aria-label="Patolli tokens"></div>
         </div>
 
         <div class="lane blue"></div>
@@ -76,21 +89,14 @@
         </div>
       </section>
 
-      <aside class="right-column">
-        <section class="player-card blue" id="blue-card">
-          <h3>BLUE</h3>
-          <p><span>Points</span><strong id="blue-score">0</strong></p>
-          <p><span>Lap</span><strong id="blue-lap">0</strong></p>
-          <p><span>Tokens Home</span><strong id="blue-home">6</strong></p>
-          <p class="objective">Land on your rival to send their runner home and claim 2 bonus points.</p>
-        </section>
-
+      <aside id="scoreboard-sidebar" class="scoreboard-sidebar">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="true">▸ Hide Scoreboard</button>
         <section class="right-panel">
           <h4>SCOREBOARD</h4>
           <div class="scoreboard-box">
             <p><span>Lead</span><strong id="score-lead">Tied</strong></p>
             <p><span>Score Gap</span><strong id="score-gap">0</strong></p>
-            <p><span>Total Laps</span><strong id="total-laps">0</strong></p>
+            <p><span>Tokens Finished</span><strong id="total-laps">0</strong></p>
             <p><span>Last Action</span><strong id="score-last-action">—</strong></p>
           </div>
 
