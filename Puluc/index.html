@@ -14,22 +14,22 @@
 
   <main class="puluc-shell">
     <header class="top-bar">
-      <div>
+      <div class="title-wrap">
         <p class="subtitle">MAYAN RACE + CAPTURE</p>
         <h1>PULUC</h1>
         <p class="title-note">Throw marked sticks, advance your warriors, and bind captured enemy stacks.</p>
       </div>
-      <div class="top-controls">
-        <div class="mode-selector">
-          <button id="mode-pvp" class="mode-btn active">PvP</button>
-          <button id="mode-pvai" class="mode-btn">PvAI</button>
+
+      <div class="status-right">
+        <div class="control-row">
+          <div class="mode-selector">
+            <button id="mode-pvp" class="mode-btn active">PvP</button>
+            <button id="mode-pvai" class="mode-btn">PvAI</button>
+          </div>
+          <button id="new-game-btn" class="new-game-btn" title="New Game">↺</button>
         </div>
-        <div class="turn-wrap">
-          <p>Current Turn</p>
-          <h2 id="turn-name">LIGHT</h2>
-        </div>
-        <button id="new-game-btn" class="new-game-btn" title="New Game">↺</button>
-        <!-- Audio controls moved here -->
+        <p id="turn-label">CURRENT TURN</p>
+        <h2 id="turn-name">LIGHT</h2>
         <div class="audio-controls" aria-label="Background music controls">
           <button id="mute-btn" class="audio-btn" type="button" aria-pressed="false" aria-label="Mute background music">
             <img id="mute-icon" src="../img/sound_on.svg" alt="" />
@@ -38,9 +38,8 @@
           <input id="volume-slider" type="range" min="0" max="100" value="50" />
           <span id="volume-value">50%</span>
         </div>
-        <!-- Hidden audio element -->
         <audio id="bg-music" loop preload="auto">
-          <source src="../audio/bg-maya.mp3" type="audio/mpeg" />
+          <source src="../src/audio/bg_maya.mp3" type="audio/mpeg" />
           Your browser does not support the audio element.
         </audio>
       </div>
@@ -48,7 +47,6 @@
 
     <section class="main-layout">
       <aside class="player-panel">
-        <!-- Updated IDs to light/dark -->
         <article class="player-card light active" id="light-card">
           <h3>LIGHT</h3>
           <p><span>Warriors on path</span><strong id="light-onboard">0</strong></p>
@@ -79,6 +77,12 @@
     </section>
 
     <p id="winner-banner" class="winner-banner hidden" role="status" aria-live="polite"></p>
+    
+    <!-- Quotes Section -->
+    <footer class="quote-section">
+      <div id="quote-text" class="quote-text"></div>
+      <div id="quote-meta" class="quote-meta"></div>
+    </footer>
   </main>
 
   <script type="module" src="src/main.js"></script>
