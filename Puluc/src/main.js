@@ -1,8 +1,9 @@
 import { createBoard, renderBoard, renderThrow, throwSticks, TOKEN_COUNT, TRACK_LENGTH, SAFE_CELLS } from './board.js';
+import { typeWriter } from './typeWriter.js';
 
-// Game state – colors are now 'light' and 'dark' instead of 'red'/'blue'
+// Game state
 const state = {
-  turn: 'light',                 // 'light' or 'dark'
+  turn: 'light',
   pendingDistance: 0,
   winner: null,
   light: {
@@ -21,7 +22,7 @@ const refs = {
   moveBtn: document.getElementById('move-btn'),
   turnName: document.getElementById('turn-name'),
   log: document.getElementById('log'),
-  lightCard: document.getElementById('light-card'),   // IDs in HTML updated accordingly
+  lightCard: document.getElementById('light-card'),
   darkCard: document.getElementById('dark-card'),
   bgMusic: document.getElementById('bg-music'),
   muteBtn: document.getElementById('mute-btn'),
@@ -32,9 +33,11 @@ const refs = {
   modePvp: document.getElementById('mode-pvp'),
   modePvai: document.getElementById('mode-pvai'),
   newGameBtn: document.getElementById('new-game-btn'),
+  quoteText: document.getElementById('quote-text'),
+  quoteMeta: document.getElementById('quote-meta')
 };
 
-// Stats display elements – update HTML ids to match new colors
+// Stats display elements
 const statRefs = {
   light: {
     onboard: document.getElementById('light-onboard'),
@@ -50,10 +53,46 @@ const statRefs = {
 
 let selectedTokenId = null;
 const cells = createBoard(refs.board, handleCellClick);
-
-// Game mode: 'pvp' or 'pvai'
 let gameMode = 'pvp';
-let isAITurn = false; // prevent AI from triggering itself recursively
+let isAITurn = false;
+
+// Quotes state
+let facts =[];
+let cancelQuoteType = null;
+let cancelMetaType = null;
+
+// ========== Quotes fetching and updating ==========
+async function loadFacts() {
+  try {
+    const response = await fetch('../templates/facts.json');
+    if (response.ok) {
+      const data = await response.json();
+      facts = data.facts ||[];
+      showRandomQuote();
+      // Update quote every 5 minutes (300,000 ms)
+      setInterval(showRandomQuote, 300000);
+    }
+  } catch (err) {
+    console.error("Failed to load facts", err);
+  }
+}
+
+function showRandomQuote() {
+  if (!facts.length) return;
+  const fact = facts[Math.floor(Math.random() * facts.length)];
+
+  if (cancelQuoteType) cancelQuoteType();
+  if (cancelMetaType) cancelMetaType();
+  
+  refs.quoteMeta.textContent = ''; // Clear meta text
+
+  const quoteStr = `"${fact.description}"`;
+  const metaStr = `${fact.category} | ${fact.title} | ${fact.source.name}: ${fact.source.reference}`;
+
+  cancelQuoteType = typeWriter(refs.quoteText, quoteStr, 30, () => {
+    cancelMetaType = typeWriter(refs.quoteMeta, metaStr, 25);
+  });
+}
 
 // ========== Helper functions ==========
 function activeTokens(color) {
@@ -69,7 +108,7 @@ function finishedTokens(color) {
 }
 
 function updatePanels() {
-  for (const color of ['light', 'dark']) {
+  for (const color of['light', 'dark']) {
     statRefs[color].onboard.textContent = String(activeTokens(color));
     statRefs[color].reserve.textContent = String(reserveTokens(color));
     statRefs[color].finished.textContent = String(finishedTokens(color));
@@ -77,7 +116,7 @@ function updatePanels() {
 
   const isLight = state.turn === 'light';
   refs.turnName.textContent = state.turn.toUpperCase();
-  refs.turnName.style.color = isLight ? '#e3c9a0' : '#b98f67'; // wood tones
+  refs.turnName.style.color = isLight ? '#e3c9a0' : '#b98f67';
   refs.lightCard.classList.toggle('active', isLight);
   refs.darkCard.classList.toggle('active', !isLight);
 }
@@ -103,14 +142,13 @@ function endTurn() {
   state.turn = state.turn === 'light' ? 'dark' : 'light';
   updatePanels();
 
-  // If PvAI and it's now dark's turn (AI) and game not over, schedule AI move
   if (!state.winner && gameMode === 'pvai' && state.turn === 'dark') {
     setTimeout(makeAIMove, 400);
   }
 }
 
 function checkWinner() {
-  for (const color of ['light', 'dark']) {
+  for (const color of['light', 'dark']) {
     if (finishedTokens(color) === TOKEN_COUNT) {
       state.winner = color;
       refs.winnerBanner.classList.remove('hidden');
@@ -162,11 +200,6 @@ function moveSelectedToken() {
     applyCapture(color, next);
     const fromText = origin < 0 ? 'start' : String(origin + 1);
     log(`${color.toUpperCase()} moves from ${fromText} to ${next + 1}.`);
-
-    // ANIMATION: highlight destination cell
-    const targetCell = cells[next];
-    targetCell.classList.add('move-highlight');
-    setTimeout(() => targetCell.classList.remove('move-highlight'), 400);
   }
 
   renderBoard(cells, state);
@@ -178,7 +211,6 @@ function moveSelectedToken() {
 
 function handleCellClick(index) {
   if (state.pendingDistance <= 0 || state.winner) return;
-  // In PvAI, human only controls light; if it's dark turn, ignore clicks
   if (gameMode === 'pvai' && state.turn === 'dark') return;
 
   const token = findTokenAt(state.turn, index);
@@ -190,13 +222,11 @@ function makeAIMove() {
   if (state.winner || isAITurn || state.turn !== 'dark') return;
   isAITurn = true;
 
-  // 1. Throw sticks
   const result = throwSticks(4);
   state.pendingDistance = result.moveDistance;
   renderThrow(refs.throwTray, result.sticks);
   log(`DARK AI throws sticks: move ${result.moveDistance}.`);
 
-  // 2. Choose a random token that is not finished
   const color = 'dark';
   const availableTokens = state[color].tokens.filter(t => !t.finished);
   if (availableTokens.length === 0) {
@@ -207,11 +237,9 @@ function makeAIMove() {
   const randomToken = availableTokens[Math.floor(Math.random() * availableTokens.length)];
   selectedTokenId = randomToken.id;
 
-  // 3. Move after a short delay so player sees the sticks
   setTimeout(() => {
     moveSelectedToken();
     isAITurn = false;
-    // After move, if game continues and it's still AI turn, trigger again
     if (!state.winner && gameMode === 'pvai' && state.turn === 'dark') {
       setTimeout(makeAIMove, 600);
     }
@@ -220,7 +248,6 @@ function makeAIMove() {
 
 // ========== Reset game ==========
 function resetGame() {
-  // Reset state
   state.turn = 'light';
   state.pendingDistance = 0;
   state.winner = null;
@@ -229,14 +256,12 @@ function resetGame() {
   selectedTokenId = null;
   isAITurn = false;
 
-  // Clear UI
   renderBoard(cells, state);
   updatePanels();
   refs.throwBtn.disabled = false;
   refs.moveBtn.disabled = true;
   refs.winnerBanner.classList.add('hidden');
   refs.throwTray.innerHTML = '';
-  // Clear log (keep only first message)
   refs.log.innerHTML = '';
   log('New game started. Throw sticks to begin.');
 }
@@ -273,7 +298,6 @@ function initializeAudio() {
 // ========== Event listeners ==========
 refs.throwBtn.addEventListener('click', () => {
   if (state.winner) return;
-  // In PvAI, only light can manually throw; dark is handled by AI
   if (gameMode === 'pvai' && state.turn === 'dark') return;
 
   const result = throwSticks(4);
@@ -285,7 +309,6 @@ refs.throwBtn.addEventListener('click', () => {
 
 refs.moveBtn.addEventListener('click', moveSelectedToken);
 
-// Mode switching
 refs.modePvp.addEventListener('click', () => {
   gameMode = 'pvp';
   refs.modePvp.classList.add('active');
@@ -299,11 +322,11 @@ refs.modePvai.addEventListener('click', () => {
   resetGame();
 });
 
-// New game button
 refs.newGameBtn.addEventListener('click', resetGame);
 
 // Initial render
 initializeAudio();
+loadFacts();
 renderBoard(cells, state);
 updatePanels();
 log('Puluc has begun. Throw sticks to move your first warrior.');
